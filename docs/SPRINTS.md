@@ -188,6 +188,8 @@ Mover a fonte de verdade para o daemon via Unix Socket e fazer CLI conversar por
 
 ## Sprint 5 — Waybar JSON
 
+Status: concluída.
+
 ### Objetivo
 
 Entregar integração consumível pela Waybar.

@@ -5,6 +5,7 @@ mod ipc;
 mod state;
 mod task;
 mod timer;
+mod waybar;
 
 use anyhow::bail;
 use clap::Parser;
@@ -24,7 +25,13 @@ fn run() -> anyhow::Result<()> {
             let response = send(ipc::IpcRequest::Start { args: start_args })?;
             print_response(response)?;
         }
-        Some(cli::Commands::Status) => print_response(send(ipc::IpcRequest::Status)?)?,
+        Some(cli::Commands::Status(status_args)) => {
+            if status_args.waybar {
+                print_waybar_status()?;
+            } else {
+                print_response(send(ipc::IpcRequest::Status)?)?;
+            }
+        }
         Some(cli::Commands::Pause) => print_response(send(ipc::IpcRequest::Pause)?)?,
         Some(cli::Commands::Resume) => print_response(send(ipc::IpcRequest::Resume)?)?,
         Some(cli::Commands::Stop) => print_response(send(ipc::IpcRequest::Stop)?)?,
@@ -50,6 +57,17 @@ fn print_response(response: ipc::IpcResponse) -> anyhow::Result<()> {
         ipc::IpcResponse::History { summary } => println!("{}", format_summary(&summary)),
         ipc::IpcResponse::Error { message } => bail!(message),
     }
+    Ok(())
+}
+
+fn print_waybar_status() -> anyhow::Result<()> {
+    let output = match send(ipc::IpcRequest::Status) {
+        Ok(ipc::IpcResponse::State { state }) => waybar::from_state(&state, chrono::Local::now()),
+        Ok(ipc::IpcResponse::Error { message }) => waybar::error(&message),
+        Ok(ipc::IpcResponse::History { .. }) => waybar::error("resposta inesperada do daemon"),
+        Err(error) => waybar::error(&format!("{error:#}")),
+    };
+    println!("{}", waybar::to_json(&output)?);
     Ok(())
 }
 

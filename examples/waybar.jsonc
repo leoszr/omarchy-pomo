@@ -1,0 +1,9 @@
+{
+  "custom/pomodoro": {
+    "exec": "omarchy-pomo status --waybar",
+    "return-type": "json",
+    "interval": 1,
+    "on-click": "kitty --class omarchy-pomo -e omarchy-pomo tui",
+    "tooltip": true
+  }
+}

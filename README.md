@@ -4,7 +4,7 @@ Pomodoro em Rust para Omarchy/Hyprland. Objetivo do MVP: daemon como fonte de ve
 
 ## Estado atual
 
-Sprint 4 concluída: daemon via Unix Socket como fonte de verdade e CLI via IPC.
+Sprint 5 concluída: daemon via Unix Socket, CLI via IPC e JSON para Waybar.
 
 Comandos atuais:
 
@@ -23,15 +23,34 @@ cargo run -- start --break
 cargo run -- start --custom 45 --type focus
 cargo run -- start --custom 5 --type break
 cargo run -- status
+cargo run -- status --waybar
 cargo run -- pause
 cargo run -- resume
 cargo run -- stop
 cargo run -- history
 ```
 
-Se o daemon não estiver rodando, a CLI retorna erro amigável pedindo `omarchy-pomo daemon`.
+Se o daemon não estiver rodando, a CLI retorna erro amigável pedindo `omarchy-pomo daemon`. Para `status --waybar`, a saída continua sendo JSON válido com classe `error`.
 
-Ainda não há Waybar ou TUI implementados.
+Ainda não há TUI implementada.
+
+## Waybar
+
+Exemplo em [`examples/waybar.jsonc`](examples/waybar.jsonc):
+
+```jsonc
+{
+  "custom/pomodoro": {
+    "exec": "omarchy-pomo status --waybar",
+    "return-type": "json",
+    "interval": 1,
+    "on-click": "kitty --class omarchy-pomo -e omarchy-pomo tui",
+    "tooltip": true
+  }
+}
+```
+
+Classes emitidas: `idle`, `running`, `paused`, `break`, `finished`, `error`.
 
 ## Arquivos locais
 

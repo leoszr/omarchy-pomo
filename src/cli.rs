@@ -15,8 +15,8 @@ pub enum Commands {
     Start(StartArgs),
     /// Inicia daemon Pomodoro via Unix Socket
     Daemon,
-    /// Mostra o estado persistido local
-    Status,
+    /// Mostra o status do timer
+    Status(StatusArgs),
     /// Pausa a sessão atual
     Pause,
     /// Retoma a sessão pausada
@@ -30,6 +30,13 @@ pub enum Commands {
         #[arg(default_value = "list")]
         action: String,
     },
+}
+
+#[derive(Args, Debug)]
+pub struct StatusArgs {
+    /// Imprime JSON compatível com Waybar
+    #[arg(long)]
+    pub waybar: bool,
 }
 
 #[derive(Args, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,5 +92,14 @@ mod tests {
     #[test]
     fn rejeita_custom_sem_type() {
         assert!(Cli::try_parse_from(["pomo", "start", "--custom", "45"]).is_err());
+    }
+
+    #[test]
+    fn parse_status_waybar() {
+        let cli = Cli::try_parse_from(["pomo", "status", "--waybar"]).unwrap();
+        let Some(Commands::Status(args)) = cli.command else {
+            panic!("comando errado");
+        };
+        assert!(args.waybar);
     }
 }
