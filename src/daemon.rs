@@ -9,6 +9,7 @@ use anyhow::Context;
 use crate::{
     history,
     ipc::{IpcRequest, IpcResponse},
+    notify::{CompletionNotifier, ExternalNotifier},
     state::{self, StatePaths, TimerState, TimerStatus},
     timer,
 };
@@ -90,6 +91,14 @@ fn update_state(
 }
 
 fn refresh_finished_state(paths: &StatePaths) -> anyhow::Result<TimerState> {
+    let mut notifier = ExternalNotifier;
+    refresh_finished_state_with_notifier(paths, &mut notifier)
+}
+
+fn refresh_finished_state_with_notifier(
+    paths: &StatePaths,
+    notifier: &mut impl CompletionNotifier,
+) -> anyhow::Result<TimerState> {
     let now = chrono::Local::now();
     let current = state::read_state(paths)?;
     let updated = timer::finish_if_due(&current, now);
@@ -97,6 +106,7 @@ fn refresh_finished_state(paths: &StatePaths) -> anyhow::Result<TimerState> {
     if current.status != TimerStatus::Finished && updated.status == TimerStatus::Finished {
         let entry = history::HistoryEntry::completed_from_state(&updated, now);
         history::append_entry(paths, &entry)?;
+        notifier.notify_completed(&updated);
     }
 
     state::write_state(paths, &updated)?;
@@ -126,6 +136,17 @@ mod tests {
     };
     use chrono::Duration;
 
+    #[derive(Default)]
+    struct MockNotifier {
+        calls: usize,
+    }
+
+    impl crate::notify::CompletionNotifier for MockNotifier {
+        fn notify_completed(&mut self, _state: &TimerState) {
+            self.calls += 1;
+        }
+    }
+
     #[test]
     fn handler_status_altera_expirado_para_finished() {
         let dir = tempfile::tempdir().unwrap();
@@ -144,6 +165,26 @@ mod tests {
             panic!("response errada");
         };
         assert_eq!(state.status, TimerStatus::Finished);
+        assert_eq!(history::read_entries(&paths).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn finalizacao_chama_notificacao_uma_unica_vez() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = StatePaths::from_base(dir.path().join("omarchy-pomo"));
+        let expired = timer::start_session(
+            SessionType::Focus,
+            "teste".to_string(),
+            1,
+            chrono::Local::now() - Duration::seconds(2),
+        );
+        state::write_state(&paths, &expired).unwrap();
+        let mut notifier = MockNotifier::default();
+
+        refresh_finished_state_with_notifier(&paths, &mut notifier).unwrap();
+        refresh_finished_state_with_notifier(&paths, &mut notifier).unwrap();
+
+        assert_eq!(notifier.calls, 1);
         assert_eq!(history::read_entries(&paths).unwrap().len(), 1);
     }
 

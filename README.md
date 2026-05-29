@@ -4,7 +4,7 @@ Pomodoro em Rust para Omarchy/Hyprland. Objetivo do MVP: daemon como fonte de ve
 
 ## Estado atual
 
-Sprint 5 concluída: daemon via Unix Socket, CLI via IPC e JSON para Waybar.
+Sprint 6 concluída: daemon via Unix Socket, CLI via IPC, JSON para Waybar, notificação e som opcional.
 
 Comandos atuais:
 
@@ -33,6 +33,22 @@ cargo run -- history
 Se o daemon não estiver rodando, a CLI retorna erro amigável pedindo `omarchy-pomo daemon`. Para `status --waybar`, a saída continua sendo JSON válido com classe `error`.
 
 Ainda não há TUI implementada.
+
+## Notificação e som
+
+Ao finalizar uma sessão, o daemon tenta executar:
+
+```bash
+notify-send "Pomodoro finalizado" "Sessão concluída: <label>"
+```
+
+Som opcional: crie o arquivo abaixo para tocar ao concluir:
+
+```text
+~/.config/omarchy-pomo/done.ogg
+```
+
+O daemon tenta `paplay` e depois `mpv --no-video`. Ausência de `notify-send`, `paplay`, `mpv` ou do arquivo de som não derruba o daemon.
 
 ## Waybar
 

@@ -2,6 +2,7 @@ mod cli;
 mod daemon;
 mod history;
 mod ipc;
+mod notify;
 mod state;
 mod task;
 mod timer;

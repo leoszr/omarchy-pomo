@@ -6,7 +6,7 @@ Criar um aplicativo Pomodoro em Rust para Omarchy/Hyprland que funcione como uti
 
 Objetivo do MVP: entregar um Pomodoro simples, estável e integrado ao desktop Linux, sem ciclos automáticos complexos nem recursos de estatísticas avançadas.
 
-Estado do projeto: as Sprints 1 a 5 implementaram base de domínio, caminhos locais, persistência em `state.json`, lógica de timer por timestamp, histórico JSONL, daemon via Unix Socket, CLI via IPC e JSON para Waybar. O daemon é a fonte de verdade. Ainda não há TUI. A implementação deve seguir as próximas sprints definidas em `docs/SPRINTS.md`.
+Estado do projeto: as Sprints 1 a 6 implementaram base de domínio, caminhos locais, persistência em `state.json`, lógica de timer por timestamp, histórico JSONL, daemon via Unix Socket, CLI via IPC, JSON para Waybar, notificação e som opcional. O daemon é a fonte de verdade. Ainda não há TUI. A implementação deve seguir as próximas sprints definidas em `docs/SPRINTS.md`.
 
 Fluxo desejado:
 
@@ -340,7 +340,7 @@ Uso esperado:
 - [x] Implementar daemon com Unix Socket e protocolo JSON para `STATUS`, `START`, `PAUSE`, `RESUME`, `STOP` e `HISTORY`.
 - [x] Fazer os subcomandos CLI conversarem com o daemon via `ipc.rs`.
 - [x] Implementar detecção de sessão finalizada no daemon, com transição para `Finished` apenas uma vez.
-- [ ] Implementar notificação e som em `notify.rs`, tolerando ausência de `notify-send`, `paplay`, `mpv` ou arquivo de som.
+- [x] Implementar notificação e som em `notify.rs`, tolerando ausência de `notify-send`, `paplay`, `mpv` ou arquivo de som.
 - [x] Implementar histórico JSONL apenas para sessões concluídas com sucesso.
 - [x] Implementar `pomo history` com resumo do dia: sessões de foco, tempo focado e pausas concluídas.
 - [x] Implementar `pomo status --waybar` com JSON válido, classes por estado e saída de erro útil se o daemon estiver indisponível.

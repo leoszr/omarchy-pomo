@@ -229,6 +229,8 @@ Entregar integração consumível pela Waybar.
 
 ## Sprint 6 — Notificação e som
 
+Status: concluída.
+
 ### Objetivo
 
 Notificar o fim de sessão e tocar som opcional sem quebrar em ambientes sem áudio/notificação.
