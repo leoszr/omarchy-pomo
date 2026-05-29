@@ -59,6 +59,8 @@ Trocar o protótipo atual por uma base testável: modelos do timer, resolução 
 
 ## Sprint 2 — Lógica do timer e CLI local
 
+Status: concluída.
+
 ### Objetivo
 
 Implementar transições do timer e comandos CLI funcionando localmente via `state.json`, antes do daemon.

@@ -6,7 +6,7 @@ Criar um aplicativo Pomodoro em Rust para Omarchy/Hyprland que funcione como uti
 
 Objetivo do MVP: entregar um Pomodoro simples, estável e integrado ao desktop Linux, sem ciclos automáticos complexos nem recursos de estatísticas avançadas.
 
-Estado do projeto: a Sprint 1 implementou base de domínio, caminhos locais e persistência em `state.json`. Ainda não há daemon, histórico, Waybar ou TUI. A implementação deve seguir as próximas sprints definidas em `docs/SPRINTS.md`.
+Estado do projeto: as Sprints 1 e 2 implementaram base de domínio, caminhos locais, persistência em `state.json`, lógica de timer por timestamp e CLI local para start/status/pause/resume/stop. Ainda não há daemon, histórico, Waybar ou TUI. A implementação deve seguir as próximas sprints definidas em `docs/SPRINTS.md`.
 
 Fluxo desejado:
 
@@ -335,8 +335,8 @@ Uso esperado:
 - [x] Definir modelos base: `TimerStatus`, `SessionType` e `TimerState`.
 - [x] Implementar resolução de caminhos em `~/.local/state/omarchy-pomo` e criação segura dos diretórios necessários.
 - [x] Implementar persistência de `state.json` e leitura de estado inicial `Idle` quando não existir arquivo.
-- [ ] Implementar lógica de timer em `timer.rs`: start, pause, resume, stop, finish e cálculo por timestamp.
-- [ ] Implementar `pomo status` usando estado local ou daemon, com fallback amigável quando o daemon não estiver rodando.
+- [x] Implementar lógica de timer em `timer.rs`: start, pause, resume, stop, finish e cálculo por timestamp.
+- [x] Implementar `pomo status` usando estado local.
 - [ ] Implementar daemon com Unix Socket e protocolo JSON para `STATUS`, `START`, `PAUSE`, `RESUME`, `STOP` e `HISTORY`.
 - [ ] Fazer os subcomandos CLI conversarem com o daemon via `ipc.rs`.
 - [ ] Implementar detecção de sessão finalizada no daemon, com transição para `Finished` apenas uma vez.

@@ -4,14 +4,20 @@ Pomodoro em Rust para Omarchy/Hyprland. Objetivo do MVP: daemon como fonte de ve
 
 ## Estado atual
 
-Sprint 1 concluída: base de domínio, resolução de caminhos e persistência local do estado.
+Sprint 2 concluída: timer local por timestamp e CLI local via `state.json`.
 
 Comandos atuais:
 
 ```bash
-cargo run -- start   # inicia sessão foco 25/5 local e grava state.json
-cargo run -- status  # lê state.json ou mostra Idle se não existir
-cargo run -- task    # comando legado do protótipo
+cargo run -- start --profile 25-5
+cargo run -- start --profile 30-10
+cargo run -- start --break
+cargo run -- start --custom 45 --type focus
+cargo run -- start --custom 5 --type break
+cargo run -- status
+cargo run -- pause
+cargo run -- resume
+cargo run -- stop
 ```
 
 Ainda não há daemon, histórico, Waybar ou TUI implementados.
