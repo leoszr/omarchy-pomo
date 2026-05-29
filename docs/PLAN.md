@@ -6,7 +6,7 @@ Criar um aplicativo Pomodoro em Rust para Omarchy/Hyprland que funcione como uti
 
 Objetivo do MVP: entregar um Pomodoro simples, estável e integrado ao desktop Linux, sem ciclos automáticos complexos nem recursos de estatísticas avançadas.
 
-Estado do projeto: as Sprints 1 a 6 implementaram base de domínio, caminhos locais, persistência em `state.json`, lógica de timer por timestamp, histórico JSONL, daemon via Unix Socket, CLI via IPC, JSON para Waybar, notificação e som opcional. O daemon é a fonte de verdade. Ainda não há TUI. A implementação deve seguir as próximas sprints definidas em `docs/SPRINTS.md`.
+Estado do projeto: as Sprints 1 a 7 implementaram base de domínio, caminhos locais, persistência em `state.json`, lógica de timer por timestamp, histórico JSONL, daemon via Unix Socket, CLI via IPC, JSON para Waybar, notificação/som opcional e TUI Ratatui mínima. O daemon é a fonte de verdade. A implementação deve seguir as próximas sprints definidas em `docs/SPRINTS.md`.
 
 Fluxo desejado:
 
@@ -344,7 +344,7 @@ Uso esperado:
 - [x] Implementar histórico JSONL apenas para sessões concluídas com sucesso.
 - [x] Implementar `pomo history` com resumo do dia: sessões de foco, tempo focado e pausas concluídas.
 - [x] Implementar `pomo status --waybar` com JSON válido, classes por estado e saída de erro útil se o daemon estiver indisponível.
-- [ ] Implementar TUI com Ratatui: tela principal, atualização periódica por status, atalhos e histórico básico.
+- [x] Implementar TUI com Ratatui: tela principal, atualização periódica por status, atalhos e histórico básico.
 - [ ] Implementar fluxo de tempo customizado na TUI de forma simples, por exemplo modal/input numérico.
 - [ ] Criar exemplos de configuração para Waybar e Hyprland.
 - [ ] Atualizar `README.md` com instalação, execução do daemon, módulo Waybar, regras Hyprland e comandos principais.

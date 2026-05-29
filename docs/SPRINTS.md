@@ -263,6 +263,8 @@ Notificar o fim de sessão e tocar som opcional sem quebrar em ambientes sem áu
 
 ## Sprint 7 — TUI Ratatui mínima
 
+Status: concluída.
+
 ### Objetivo
 
 Criar TUI funcional para controlar o daemon sem manter timer próprio.

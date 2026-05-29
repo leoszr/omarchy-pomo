@@ -4,7 +4,7 @@ Pomodoro em Rust para Omarchy/Hyprland. Objetivo do MVP: daemon como fonte de ve
 
 ## Estado atual
 
-Sprint 6 concluída: daemon via Unix Socket, CLI via IPC, JSON para Waybar, notificação e som opcional.
+Sprint 7 concluída: daemon via Unix Socket, CLI via IPC, JSON para Waybar, notificação/som opcional e TUI Ratatui mínima.
 
 Comandos atuais:
 
@@ -28,11 +28,31 @@ cargo run -- pause
 cargo run -- resume
 cargo run -- stop
 cargo run -- history
+cargo run -- tui
 ```
 
 Se o daemon não estiver rodando, a CLI retorna erro amigável pedindo `omarchy-pomo daemon`. Para `status --waybar`, a saída continua sendo JSON válido com classe `error`.
 
-Ainda não há TUI implementada.
+## TUI
+
+Com o daemon rodando:
+
+```bash
+cargo run -- tui
+```
+
+Atalhos:
+
+```text
+1 = foco 25 min
+2 = foco 30 min
+3 = break 5 min
+p = pause/resume
+s = stop
+q = sair sem parar timer
+```
+
+A TUI consulta/controla o daemon via IPC. Fechar com `q` não para o timer.
 
 ## Notificação e som
 

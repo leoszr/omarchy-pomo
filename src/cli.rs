@@ -25,6 +25,8 @@ pub enum Commands {
     Stop,
     /// Mostra resumo do histórico de hoje
     History,
+    /// Abre TUI para controlar o daemon
+    Tui,
     /// Gerencia tarefas
     Task {
         #[arg(default_value = "list")]

@@ -6,6 +6,7 @@ mod notify;
 mod state;
 mod task;
 mod timer;
+mod tui;
 mod waybar;
 
 use anyhow::bail;
@@ -37,6 +38,7 @@ fn run() -> anyhow::Result<()> {
         Some(cli::Commands::Resume) => print_response(send(ipc::IpcRequest::Resume)?)?,
         Some(cli::Commands::Stop) => print_response(send(ipc::IpcRequest::Stop)?)?,
         Some(cli::Commands::History) => print_response(send(ipc::IpcRequest::History)?)?,
+        Some(cli::Commands::Tui) => tui::run()?,
         Some(cli::Commands::Task { action }) => {
             task::run(&action);
         }
