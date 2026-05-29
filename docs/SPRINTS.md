@@ -105,6 +105,8 @@ Implementar transições do timer e comandos CLI funcionando localmente via `sta
 
 ## Sprint 3 — Histórico JSONL e resumo diário
 
+Status: concluída.
+
 ### Objetivo
 
 Registrar sessões concluídas e exibir resumo diário via CLI.

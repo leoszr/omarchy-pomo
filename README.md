@@ -4,7 +4,7 @@ Pomodoro em Rust para Omarchy/Hyprland. Objetivo do MVP: daemon como fonte de ve
 
 ## Estado atual
 
-Sprint 2 concluída: timer local por timestamp e CLI local via `state.json`.
+Sprint 3 concluída: timer local, histórico JSONL e resumo diário.
 
 Comandos atuais:
 
@@ -18,9 +18,10 @@ cargo run -- status
 cargo run -- pause
 cargo run -- resume
 cargo run -- stop
+cargo run -- history
 ```
 
-Ainda não há daemon, histórico, Waybar ou TUI implementados.
+Ainda não há daemon, Waybar ou TUI implementados.
 
 ## Arquivos locais
 
@@ -28,11 +29,19 @@ O estado local fica em:
 
 ```text
 ~/.local/state/omarchy-pomo/state.json
-~/.local/state/omarchy-pomo/history.jsonl  # reservado para sprint futura
+~/.local/state/omarchy-pomo/history.jsonl
 ~/.local/state/omarchy-pomo/pomo.sock      # reservado para daemon futuro
 ```
 
 Quando `state.json` não existe, o estado inicial é `Idle`.
+
+`history.jsonl` é append-only. Cada linha registra uma sessão concluída:
+
+```json
+{"date":"2026-05-29","type":"focus","label":"25/5 Focus","duration_secs":1500,"completed":true,"finished_at":"2026-05-29T10:00:00-03:00"}
+```
+
+`stop` manual não escreve histórico. Linhas inválidas em `history.jsonl` são ignoradas no resumo.
 
 ## Desenvolvimento
 
@@ -56,4 +65,4 @@ passam, os critérios de aceite são verificados e a documentação é atualizad
 cargo test
 ```
 
-Passa com 0 testes no protótipo atual.
+Passa com a suíte atual.

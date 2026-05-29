@@ -20,6 +20,8 @@ pub enum Commands {
     Resume,
     /// Para a sessão atual e volta para idle
     Stop,
+    /// Mostra resumo do histórico de hoje
+    History,
     /// Gerencia tarefas
     Task {
         #[arg(default_value = "list")]

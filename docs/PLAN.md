@@ -6,7 +6,7 @@ Criar um aplicativo Pomodoro em Rust para Omarchy/Hyprland que funcione como uti
 
 Objetivo do MVP: entregar um Pomodoro simples, estável e integrado ao desktop Linux, sem ciclos automáticos complexos nem recursos de estatísticas avançadas.
 
-Estado do projeto: as Sprints 1 e 2 implementaram base de domínio, caminhos locais, persistência em `state.json`, lógica de timer por timestamp e CLI local para start/status/pause/resume/stop. Ainda não há daemon, histórico, Waybar ou TUI. A implementação deve seguir as próximas sprints definidas em `docs/SPRINTS.md`.
+Estado do projeto: as Sprints 1, 2 e 3 implementaram base de domínio, caminhos locais, persistência em `state.json`, lógica de timer por timestamp, CLI local para start/status/pause/resume/stop e histórico JSONL com resumo diário. Ainda não há daemon, Waybar ou TUI. A implementação deve seguir as próximas sprints definidas em `docs/SPRINTS.md`.
 
 Fluxo desejado:
 
@@ -341,8 +341,8 @@ Uso esperado:
 - [ ] Fazer os subcomandos CLI conversarem com o daemon via `ipc.rs`.
 - [ ] Implementar detecção de sessão finalizada no daemon, com transição para `Finished` apenas uma vez.
 - [ ] Implementar notificação e som em `notify.rs`, tolerando ausência de `notify-send`, `paplay`, `mpv` ou arquivo de som.
-- [ ] Implementar histórico JSONL apenas para sessões concluídas com sucesso.
-- [ ] Implementar `pomo history` com resumo do dia: sessões de foco, tempo focado e pausas concluídas.
+- [x] Implementar histórico JSONL apenas para sessões concluídas com sucesso.
+- [x] Implementar `pomo history` com resumo do dia: sessões de foco, tempo focado e pausas concluídas.
 - [ ] Implementar `pomo status --waybar` com JSON válido, classes por estado e saída de erro útil se o daemon estiver indisponível.
 - [ ] Implementar TUI com Ratatui: tela principal, atualização periódica por status, atalhos e histórico básico.
 - [ ] Implementar fluxo de tempo customizado na TUI de forma simples, por exemplo modal/input numérico.

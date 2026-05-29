@@ -1,4 +1,5 @@
 mod cli;
+mod history;
 mod state;
 mod task;
 mod timer;
@@ -23,9 +24,7 @@ fn run() -> anyhow::Result<()> {
         }
         Some(cli::Commands::Status) => {
             let paths = state::StatePaths::new()?;
-            let current = state::read_state(&paths)?;
-            let current = timer::finish_if_due(&current, chrono::Local::now());
-            state::write_state(&paths, &current)?;
+            let current = refresh_finished_state(&paths)?;
             println!("{}", format_status(&current));
         }
         Some(cli::Commands::Pause) => update_state(|current, now| timer::pause(&current, now))?,
@@ -35,6 +34,12 @@ fn run() -> anyhow::Result<()> {
             state::write_state(&paths, &timer::stop())?;
             println!("Sessão parada.");
         }
+        Some(cli::Commands::History) => {
+            let paths = state::StatePaths::new()?;
+            let entries = history::read_entries(&paths)?;
+            let summary = history::summarize_day(&entries, chrono::Local::now().date_naive());
+            println!("{}", format_summary(&summary));
+        }
         Some(cli::Commands::Task { action }) => {
             task::run(&action);
         }
@@ -43,6 +48,22 @@ fn run() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+fn refresh_finished_state(paths: &state::StatePaths) -> anyhow::Result<state::TimerState> {
+    let now = chrono::Local::now();
+    let current = state::read_state(paths)?;
+    let updated = timer::finish_if_due(&current, now);
+
+    if current.status != state::TimerStatus::Finished
+        && updated.status == state::TimerStatus::Finished
+    {
+        let entry = history::HistoryEntry::completed_from_state(&updated, now);
+        history::append_entry(paths, &entry)?;
+    }
+
+    state::write_state(paths, &updated)?;
+    Ok(updated)
 }
 
 fn update_state(
@@ -64,6 +85,16 @@ fn format_status(current: &state::TimerState) -> String {
         session_name(&current.session_type),
         current.label,
         format_duration(remaining)
+    )
+}
+
+fn format_summary(summary: &history::DailySummary) -> String {
+    format!(
+        "data={} foco_sessoes={} foco_total={} pausas={}",
+        summary.date,
+        summary.focus_sessions,
+        format_duration(summary.focused_secs),
+        summary.break_sessions
     )
 }
 
@@ -91,9 +122,45 @@ fn session_name(session_type: &state::SessionType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Duration;
 
     #[test]
     fn formata_duracao_mm_ss() {
         assert_eq!(format_duration(65), "01:05");
+    }
+
+    #[test]
+    fn stop_manual_nao_escreve_historico() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = state::StatePaths::from_base(dir.path().join("omarchy-pomo"));
+        let running = timer::start_session(
+            state::SessionType::Focus,
+            "teste".to_string(),
+            60,
+            chrono::Local::now(),
+        );
+        state::write_state(&paths, &running).unwrap();
+
+        state::write_state(&paths, &timer::stop()).unwrap();
+
+        assert!(history::read_entries(&paths).unwrap().is_empty());
+    }
+
+    #[test]
+    fn finalizacao_repetida_nao_duplica_historico() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = state::StatePaths::from_base(dir.path().join("omarchy-pomo"));
+        let expired = timer::start_session(
+            state::SessionType::Focus,
+            "teste".to_string(),
+            1,
+            chrono::Local::now() - Duration::seconds(2),
+        );
+        state::write_state(&paths, &expired).unwrap();
+
+        refresh_finished_state(&paths).unwrap();
+        refresh_finished_state(&paths).unwrap();
+
+        assert_eq!(history::read_entries(&paths).unwrap().len(), 1);
     }
 }

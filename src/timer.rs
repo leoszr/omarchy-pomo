@@ -83,10 +83,11 @@ pub fn resume(state: &TimerState, now: DateTime<Local>) -> TimerState {
     }
 
     let remaining = state.paused_remaining_secs.unwrap_or(state.duration_secs);
+    let elapsed_before_pause = state.duration_secs.saturating_sub(remaining);
+    let started_at = now - chrono::Duration::seconds(elapsed_before_pause as i64);
     TimerState {
         status: TimerStatus::Running,
-        duration_secs: remaining,
-        started_at: Some(now),
+        started_at: Some(started_at),
         paused_remaining_secs: None,
         ..state.clone()
     }
@@ -179,8 +180,8 @@ mod tests {
         let resumed = resume(&paused, now);
 
         assert_eq!(resumed.status, TimerStatus::Running);
-        assert_eq!(resumed.duration_secs, 35);
-        assert_eq!(resumed.started_at, Some(now));
+        assert_eq!(resumed.duration_secs, 60);
+        assert_eq!(remaining_secs_at(&resumed, now), 35);
         assert_eq!(resumed.paused_remaining_secs, None);
     }
 
