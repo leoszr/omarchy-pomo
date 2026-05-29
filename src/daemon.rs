@@ -114,6 +114,15 @@ fn refresh_finished_state_with_notifier(
 }
 
 fn remove_stale_socket(paths: &StatePaths) -> anyhow::Result<()> {
+    match UnixStream::connect(&paths.socket_file) {
+        Ok(_) => anyhow::bail!(
+            "daemon já parece estar rodando em {}",
+            paths.socket_file.display()
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => {}
+    }
+
     match fs::remove_file(&paths.socket_file) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -135,6 +144,7 @@ mod tests {
         state::{SessionType, TimerStatus},
     };
     use chrono::Duration;
+    use std::os::unix::net::UnixListener;
 
     #[derive(Default)]
     struct MockNotifier {
@@ -210,5 +220,31 @@ mod tests {
             state::read_state(&paths).unwrap().status,
             TimerStatus::Running
         );
+    }
+
+    #[test]
+    fn nao_remove_socket_de_daemon_ativo() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = StatePaths::from_base(dir.path().join("omarchy-pomo"));
+        paths.ensure_base_dir().unwrap();
+        let _listener = UnixListener::bind(&paths.socket_file).unwrap();
+
+        let error = remove_stale_socket(&paths).unwrap_err().to_string();
+
+        assert!(error.contains("daemon já parece estar rodando"));
+        assert!(paths.socket_file.exists());
+    }
+
+    #[test]
+    fn remove_socket_stale() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = StatePaths::from_base(dir.path().join("omarchy-pomo"));
+        paths.ensure_base_dir().unwrap();
+        let listener = UnixListener::bind(&paths.socket_file).unwrap();
+        drop(listener);
+
+        remove_stale_socket(&paths).unwrap();
+
+        assert!(!paths.socket_file.exists());
     }
 }

@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::{
-    cli::StartArgs,
+    cli::{CustomSessionType, StartArgs},
     ipc::IpcRequest,
     state::{TimerState, TimerStatus},
 };
@@ -9,6 +9,12 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TuiAction {
     Request(IpcRequest),
+    BeginCustom,
+    PushCustomDigit(char),
+    PopCustomDigit,
+    SetCustomType(CustomSessionType),
+    SubmitCustom,
+    CancelCustom,
     Quit,
     None,
 }
@@ -23,11 +29,28 @@ pub fn action_for_key(key: KeyEvent, state: Option<&TimerState>) -> TuiAction {
             args: profile_args("30-10"),
         }),
         KeyCode::Char('3') => TuiAction::Request(IpcRequest::Start { args: break_args() }),
+        KeyCode::Char('4') => TuiAction::BeginCustom,
         KeyCode::Char('p') => match state.map(|state| &state.status) {
             Some(TimerStatus::Paused) => TuiAction::Request(IpcRequest::Resume),
             _ => TuiAction::Request(IpcRequest::Pause),
         },
         KeyCode::Char('s') => TuiAction::Request(IpcRequest::Stop),
+        _ => TuiAction::None,
+    }
+}
+
+pub fn action_for_custom_key(key: KeyEvent) -> TuiAction {
+    match key.code {
+        KeyCode::Esc => TuiAction::CancelCustom,
+        KeyCode::Enter => TuiAction::SubmitCustom,
+        KeyCode::Backspace => TuiAction::PopCustomDigit,
+        KeyCode::Char('f') | KeyCode::Char('F') => {
+            TuiAction::SetCustomType(CustomSessionType::Focus)
+        }
+        KeyCode::Char('b') | KeyCode::Char('B') => {
+            TuiAction::SetCustomType(CustomSessionType::Break)
+        }
+        KeyCode::Char(ch) if ch.is_ascii_digit() => TuiAction::PushCustomDigit(ch),
         _ => TuiAction::None,
     }
 }
@@ -88,5 +111,32 @@ mod tests {
     #[test]
     fn q_nao_envia_stop() {
         assert_eq!(action_for_key(key('q'), None), TuiAction::Quit);
+    }
+
+    #[test]
+    fn tecla_4_inicia_fluxo_custom() {
+        assert_eq!(action_for_key(key('4'), None), TuiAction::BeginCustom);
+    }
+
+    #[test]
+    fn input_custom_aceita_digitos_tipo_e_enter() {
+        assert_eq!(
+            action_for_custom_key(key('7')),
+            TuiAction::PushCustomDigit('7')
+        );
+        assert_eq!(
+            action_for_custom_key(key('f')),
+            TuiAction::SetCustomType(CustomSessionType::Focus)
+        );
+        assert_eq!(
+            action_for_custom_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            TuiAction::SubmitCustom
+        );
+    }
+
+    #[test]
+    fn input_custom_ignora_texto_invalido_e_negativo() {
+        assert_eq!(action_for_custom_key(key('x')), TuiAction::None);
+        assert_eq!(action_for_custom_key(key('-')), TuiAction::None);
     }
 }

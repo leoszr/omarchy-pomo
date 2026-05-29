@@ -4,31 +4,40 @@ Pomodoro em Rust para Omarchy/Hyprland. Objetivo do MVP: daemon como fonte de ve
 
 ## Estado atual
 
-Sprint 7 concluída: daemon via Unix Socket, CLI via IPC, JSON para Waybar, notificação/som opcional e TUI Ratatui mínima.
+MVP concluído: TUI com tempo customizado, daemon via Unix Socket, CLI via IPC, JSON para Waybar, notificação/som opcional, exemplos Waybar/Hyprland e build release verificado.
 
-Comandos atuais:
+## Instalação local
+
+```bash
+cargo build --release
+install -Dm755 target/release/omarchy-pomo ~/.local/bin/omarchy-pomo
+```
+
+Garanta que `~/.local/bin` esteja no `PATH`.
+
+## Uso
 
 Em um terminal, inicie o daemon:
 
 ```bash
-cargo run -- daemon
+omarchy-pomo daemon
 ```
 
 Em outro terminal, use a CLI:
 
 ```bash
-cargo run -- start --profile 25-5
-cargo run -- start --profile 30-10
-cargo run -- start --break
-cargo run -- start --custom 45 --type focus
-cargo run -- start --custom 5 --type break
-cargo run -- status
-cargo run -- status --waybar
-cargo run -- pause
-cargo run -- resume
-cargo run -- stop
-cargo run -- history
-cargo run -- tui
+omarchy-pomo start --profile 25-5
+omarchy-pomo start --profile 30-10
+omarchy-pomo start --break
+omarchy-pomo start --custom 45 --type focus
+omarchy-pomo start --custom 5 --type break
+omarchy-pomo status
+omarchy-pomo status --waybar
+omarchy-pomo pause
+omarchy-pomo resume
+omarchy-pomo stop
+omarchy-pomo history
+omarchy-pomo tui
 ```
 
 Se o daemon não estiver rodando, a CLI retorna erro amigável pedindo `omarchy-pomo daemon`. Para `status --waybar`, a saída continua sendo JSON válido com classe `error`.
@@ -38,7 +47,7 @@ Se o daemon não estiver rodando, a CLI retorna erro amigável pedindo `omarchy-
 Com o daemon rodando:
 
 ```bash
-cargo run -- tui
+omarchy-pomo tui
 ```
 
 Atalhos:
@@ -47,6 +56,7 @@ Atalhos:
 1 = foco 25 min
 2 = foco 30 min
 3 = break 5 min
+4 = tempo customizado: digite minutos, f=focus ou b=break, Enter inicia, Esc cancela
 p = pause/resume
 s = stop
 q = sair sem parar timer
@@ -88,6 +98,16 @@ Exemplo em [`examples/waybar.jsonc`](examples/waybar.jsonc):
 
 Classes emitidas: `idle`, `running`, `paused`, `break`, `finished`, `error`.
 
+## Hyprland / Omarchy
+
+Use uma classe dedicada no terminal para a TUI flutuar:
+
+```bash
+kitty --class omarchy-pomo -e omarchy-pomo tui
+```
+
+Regras em [`examples/hyprland.conf`](examples/hyprland.conf): janela flutuante, centralizada e 700x420.
+
 ## Arquivos locais
 
 O estado local fica em:
@@ -108,6 +128,15 @@ Quando `state.json` não existe, o estado inicial é `Idle`.
 
 `stop` manual não escreve histórico. Linhas inválidas em `history.jsonl` são ignoradas no resumo.
 
+## Troubleshooting
+
+- `daemon indisponível`: inicie `omarchy-pomo daemon`.
+- `daemon já parece estar rodando`: já existe daemon ativo; não inicie outro.
+- Waybar mostra erro: confirme se `omarchy-pomo` está no `PATH` da sessão gráfica.
+- Sem som: instale `paplay` ou `mpv` e crie `~/.config/omarchy-pomo/done.ogg`.
+- Sem notificação: instale/configure `notify-send` e daemon de notificações.
+- Socket antigo/stale: o daemon remove socket morto ao iniciar; socket ativo não é removido.
+
 ## Desenvolvimento
 
 Backlog por sprints: [`docs/SPRINTS.md`](docs/SPRINTS.md).
@@ -120,6 +149,7 @@ Cada sprint só termina quando:
 cargo fmt
 cargo clippy -- -D warnings
 cargo test
+cargo build --release
 ```
 
 passam, os critérios de aceite são verificados e a documentação é atualizada.
@@ -127,7 +157,10 @@ passam, os critérios de aceite são verificados e a documentação é atualizad
 ## Verificação atual
 
 ```bash
+cargo fmt
+cargo clippy -- -D warnings
 cargo test
+cargo build --release
 ```
 
 Passa com a suíte atual.

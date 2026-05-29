@@ -308,6 +308,8 @@ Criar TUI funcional para controlar o daemon sem manter timer próprio.
 
 ## Sprint 8 — Custom time na TUI e exemplos Omarchy/Hyprland
 
+Status: concluída.
+
 ### Objetivo
 
 Completar fluxo interativo e documentação de integração desktop.
@@ -338,6 +340,8 @@ Completar fluxo interativo e documentação de integração desktop.
 - `examples/hyprland.conf`: exemplo final.
 
 ## Sprint 9 — Hardening MVP e release local
+
+Status: concluída.
 
 ### Objetivo
 

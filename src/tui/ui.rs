@@ -24,7 +24,24 @@ pub fn render(frame: &mut Frame, app: &TuiApp) {
         header,
     );
 
-    let body_text = if let Some(error) = &app.error {
+    let body_text = if let Some(input) = &app.custom_input {
+        let kind = input
+            .session_type
+            .map(|kind| match kind {
+                crate::cli::CustomSessionType::Focus => "focus",
+                crate::cli::CustomSessionType::Break => "break",
+            })
+            .unwrap_or("não escolhido");
+        let error = app
+            .error
+            .as_ref()
+            .map(|error| format!("\nErro: {error}"))
+            .unwrap_or_default();
+        format!(
+            "Custom timer\nMinutos: {}\nTipo: {}\nDigite números, f=focus, b=break, Enter=iniciar, Esc=cancelar{}",
+            input.minutes, kind, error
+        )
+    } else if let Some(error) = &app.error {
         format!("Erro: {error}")
     } else if let Some(state) = &app.state {
         format!(
@@ -66,7 +83,7 @@ pub fn render(frame: &mut Frame, app: &TuiApp) {
 
     frame.render_widget(
         Paragraph::new(format!(
-            "1 foco 25 | 2 foco 30 | 3 break | p pause/resume | s stop | q sair\n{history}"
+            "1 foco 25 | 2 foco 30 | 3 break | 4 custom | p pause/resume | s stop | q sair\n{history}"
         ))
         .block(Block::bordered().title("Atalhos")),
         footer,

@@ -1,4 +1,10 @@
-use crate::{history::DailySummary, ipc::IpcResponse, state::TimerState, timer};
+use crate::{
+    cli::{CustomSessionType, StartArgs},
+    history::DailySummary,
+    ipc::IpcResponse,
+    state::TimerState,
+    timer,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct TuiApp {
@@ -6,6 +12,13 @@ pub struct TuiApp {
     pub summary: Option<DailySummary>,
     pub error: Option<String>,
     pub should_quit: bool,
+    pub custom_input: Option<CustomInput>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CustomInput {
+    pub minutes: String,
+    pub session_type: Option<CustomSessionType>,
 }
 
 impl TuiApp {
@@ -39,12 +52,65 @@ impl TuiApp {
         let elapsed = state.duration_secs.saturating_sub(self.remaining_secs());
         elapsed as f64 / state.duration_secs as f64
     }
+
+    pub fn begin_custom_input(&mut self) {
+        self.error = None;
+        self.custom_input = Some(CustomInput::default());
+    }
+
+    pub fn push_custom_digit(&mut self, digit: char) {
+        if let Some(input) = &mut self.custom_input {
+            if input.minutes.len() < 3 {
+                input.minutes.push(digit);
+            }
+        }
+    }
+
+    pub fn pop_custom_digit(&mut self) {
+        if let Some(input) = &mut self.custom_input {
+            input.minutes.pop();
+        }
+    }
+
+    pub fn set_custom_type(&mut self, session_type: CustomSessionType) {
+        if let Some(input) = &mut self.custom_input {
+            input.session_type = Some(session_type);
+        }
+    }
+
+    pub fn cancel_custom_input(&mut self) {
+        self.custom_input = None;
+        self.error = None;
+    }
+
+    pub fn custom_start_args(&self) -> Result<StartArgs, String> {
+        let input = self
+            .custom_input
+            .as_ref()
+            .ok_or_else(|| "input customizado não iniciado".to_string())?;
+        let minutes: u64 = input
+            .minutes
+            .parse()
+            .map_err(|_| "digite minutos válidos".to_string())?;
+        if minutes == 0 {
+            return Err("tempo customizado deve ser maior que zero".to_string());
+        }
+        let session_type = input
+            .session_type
+            .ok_or_else(|| "escolha f para foco ou b para break".to_string())?;
+        Ok(StartArgs {
+            profile: None,
+            break_session: false,
+            custom: Some(minutes),
+            session_type: Some(session_type),
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ipc::IpcResponse, state::SessionType};
+    use crate::{cli::CustomSessionType, ipc::IpcResponse, state::SessionType};
 
     #[test]
     fn interpreta_response_state() {
@@ -73,5 +139,41 @@ mod tests {
         });
 
         assert_eq!(app.error.as_deref(), Some("daemon caiu"));
+    }
+
+    #[test]
+    fn custom_input_valido_gera_start_args() {
+        let mut app = TuiApp::default();
+        app.begin_custom_input();
+        app.push_custom_digit('4');
+        app.push_custom_digit('5');
+        app.set_custom_type(CustomSessionType::Focus);
+
+        let args = app.custom_start_args().unwrap();
+
+        assert_eq!(args.custom, Some(45));
+        assert_eq!(args.session_type, Some(CustomSessionType::Focus));
+    }
+
+    #[test]
+    fn custom_input_rejeita_zero() {
+        let mut app = TuiApp::default();
+        app.begin_custom_input();
+        app.push_custom_digit('0');
+        app.set_custom_type(CustomSessionType::Break);
+
+        assert!(app
+            .custom_start_args()
+            .unwrap_err()
+            .contains("maior que zero"));
+    }
+
+    #[test]
+    fn custom_input_exige_tipo() {
+        let mut app = TuiApp::default();
+        app.begin_custom_input();
+        app.push_custom_digit('5');
+
+        assert!(app.custom_start_args().unwrap_err().contains("escolha"));
     }
 }

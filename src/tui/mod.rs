@@ -22,7 +22,9 @@ fn run_app(terminal: &mut ratatui::DefaultTerminal, paths: &StatePaths) -> anyho
     let mut app = TuiApp::default();
 
     loop {
-        refresh(&mut app, paths);
+        if app.custom_input.is_none() {
+            refresh(&mut app, paths);
+        }
         terminal.draw(|frame| ui::render(frame, &app))?;
 
         if app.should_quit {
@@ -32,14 +34,12 @@ fn run_app(terminal: &mut ratatui::DefaultTerminal, paths: &StatePaths) -> anyho
         if event::poll(Duration::from_millis(250))? {
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
-                    match events::action_for_key(key, app.state.as_ref()) {
-                        TuiAction::Request(request) => match ipc::request(paths, &request) {
-                            Ok(response) => app.apply_response(response),
-                            Err(error) => app.set_error(format!("{error:#}")),
-                        },
-                        TuiAction::Quit => app.should_quit = true,
-                        TuiAction::None => {}
-                    }
+                    let action = if app.custom_input.is_some() {
+                        events::action_for_custom_key(key)
+                    } else {
+                        events::action_for_key(key, app.state.as_ref())
+                    };
+                    handle_action(&mut app, paths, action);
                 }
                 Event::Resize(_, _) => {}
                 _ => {}
@@ -48,6 +48,33 @@ fn run_app(terminal: &mut ratatui::DefaultTerminal, paths: &StatePaths) -> anyho
     }
 
     Ok(())
+}
+
+fn handle_action(app: &mut TuiApp, paths: &StatePaths, action: TuiAction) {
+    match action {
+        TuiAction::Request(request) => send_request(app, paths, &request),
+        TuiAction::BeginCustom => app.begin_custom_input(),
+        TuiAction::PushCustomDigit(digit) => app.push_custom_digit(digit),
+        TuiAction::PopCustomDigit => app.pop_custom_digit(),
+        TuiAction::SetCustomType(session_type) => app.set_custom_type(session_type),
+        TuiAction::SubmitCustom => match app.custom_start_args() {
+            Ok(args) => {
+                app.cancel_custom_input();
+                send_request(app, paths, &ipc::IpcRequest::Start { args });
+            }
+            Err(error) => app.set_error(error),
+        },
+        TuiAction::CancelCustom => app.cancel_custom_input(),
+        TuiAction::Quit => app.should_quit = true,
+        TuiAction::None => {}
+    }
+}
+
+fn send_request(app: &mut TuiApp, paths: &StatePaths, request: &ipc::IpcRequest) {
+    match ipc::request(paths, request) {
+        Ok(response) => app.apply_response(response),
+        Err(error) => app.set_error(format!("{error:#}")),
+    }
 }
 
 fn refresh(app: &mut TuiApp, paths: &StatePaths) {

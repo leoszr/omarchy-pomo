@@ -6,7 +6,7 @@ Criar um aplicativo Pomodoro em Rust para Omarchy/Hyprland que funcione como uti
 
 Objetivo do MVP: entregar um Pomodoro simples, estável e integrado ao desktop Linux, sem ciclos automáticos complexos nem recursos de estatísticas avançadas.
 
-Estado do projeto: as Sprints 1 a 7 implementaram base de domínio, caminhos locais, persistência em `state.json`, lógica de timer por timestamp, histórico JSONL, daemon via Unix Socket, CLI via IPC, JSON para Waybar, notificação/som opcional e TUI Ratatui mínima. O daemon é a fonte de verdade. A implementação deve seguir as próximas sprints definidas em `docs/SPRINTS.md`.
+Estado do projeto: MVP concluído nas Sprints 1 a 9. Implementado: base de domínio, caminhos locais, persistência em `state.json`, lógica de timer por timestamp, histórico JSONL, daemon via Unix Socket, CLI via IPC, JSON para Waybar, notificação/som opcional, TUI Ratatui com tempo customizado, exemplos Waybar/Hyprland, hardening do socket e build release verificado. O daemon é a fonte de verdade.
 
 Fluxo desejado:
 
@@ -345,9 +345,13 @@ Uso esperado:
 - [x] Implementar `pomo history` com resumo do dia: sessões de foco, tempo focado e pausas concluídas.
 - [x] Implementar `pomo status --waybar` com JSON válido, classes por estado e saída de erro útil se o daemon estiver indisponível.
 - [x] Implementar TUI com Ratatui: tela principal, atualização periódica por status, atalhos e histórico básico.
-- [ ] Implementar fluxo de tempo customizado na TUI de forma simples, por exemplo modal/input numérico.
-- [ ] Criar exemplos de configuração para Waybar e Hyprland.
-- [ ] Atualizar `README.md` com instalação, execução do daemon, módulo Waybar, regras Hyprland e comandos principais.
+- [x] Implementar fluxo de tempo customizado na TUI de forma simples, por exemplo modal/input numérico.
+- [x] Criar exemplos de configuração para Waybar e Hyprland.
+- [x] Atualizar `README.md` com instalação, execução do daemon, módulo Waybar, regras Hyprland e comandos principais.
+- [x] Revisar hardening do daemon: socket ativo não é removido ao iniciar outro daemon.
+- [x] Criar troubleshooting básico no README.
+- [x] Validar `cargo fmt`, `cargo clippy -- -D warnings`, `cargo test` e `cargo build --release`.
+- [x] Verificar fluxo manual básico com `XDG_STATE_HOME` temporário: daemon, status, start custom, Waybar JSON, pause, resume, stop e history.
 
 ---
 
@@ -403,6 +407,10 @@ Fluxo final esperado:
 - Sessões finalizadas são registradas apenas uma vez.
 - Se o daemon estiver indisponível, CLI/Waybar retornam erro amigável.
 - O MVP não inclui ciclos automáticos, long break inteligente, SQLite, calendário, tarefas, tray ou sincronização.
+
+## Status final do MVP
+
+Concluído. Próximos passos possíveis estão listados em “Fora do escopo do MVP”.
 
 ---
 
