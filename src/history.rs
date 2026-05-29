@@ -24,7 +24,7 @@ pub struct HistoryEntry {
     pub finished_at: DateTime<Local>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct DailySummary {
     pub date: NaiveDate,
     pub focus_sessions: u64,

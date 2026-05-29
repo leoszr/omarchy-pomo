@@ -1,4 +1,5 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use serde::{Deserialize, Serialize};
 
 #[derive(Parser, Debug)]
 #[command(name = "omarchy-pomo")]
@@ -12,6 +13,8 @@ pub struct Cli {
 pub enum Commands {
     /// Inicia uma sessão de pomodoro
     Start(StartArgs),
+    /// Inicia daemon Pomodoro via Unix Socket
+    Daemon,
     /// Mostra o estado persistido local
     Status,
     /// Pausa a sessão atual
@@ -29,7 +32,7 @@ pub enum Commands {
     },
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StartArgs {
     /// Perfil de foco: 25-5 ou 30-10
     #[arg(long, value_parser = ["25-5", "30-10"], conflicts_with_all = ["break_session", "custom"])]
@@ -48,7 +51,8 @@ pub struct StartArgs {
     pub session_type: Option<CustomSessionType>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "snake_case")]
 pub enum CustomSessionType {
     Focus,
     Break,

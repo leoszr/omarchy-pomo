@@ -6,7 +6,7 @@ Criar um aplicativo Pomodoro em Rust para Omarchy/Hyprland que funcione como uti
 
 Objetivo do MVP: entregar um Pomodoro simples, estável e integrado ao desktop Linux, sem ciclos automáticos complexos nem recursos de estatísticas avançadas.
 
-Estado do projeto: as Sprints 1, 2 e 3 implementaram base de domínio, caminhos locais, persistência em `state.json`, lógica de timer por timestamp, CLI local para start/status/pause/resume/stop e histórico JSONL com resumo diário. Ainda não há daemon, Waybar ou TUI. A implementação deve seguir as próximas sprints definidas em `docs/SPRINTS.md`.
+Estado do projeto: as Sprints 1 a 4 implementaram base de domínio, caminhos locais, persistência em `state.json`, lógica de timer por timestamp, histórico JSONL, daemon via Unix Socket e CLI via IPC. O daemon é a fonte de verdade. Ainda não há Waybar ou TUI. A implementação deve seguir as próximas sprints definidas em `docs/SPRINTS.md`.
 
 Fluxo desejado:
 
@@ -336,10 +336,10 @@ Uso esperado:
 - [x] Implementar resolução de caminhos em `~/.local/state/omarchy-pomo` e criação segura dos diretórios necessários.
 - [x] Implementar persistência de `state.json` e leitura de estado inicial `Idle` quando não existir arquivo.
 - [x] Implementar lógica de timer em `timer.rs`: start, pause, resume, stop, finish e cálculo por timestamp.
-- [x] Implementar `pomo status` usando estado local.
-- [ ] Implementar daemon com Unix Socket e protocolo JSON para `STATUS`, `START`, `PAUSE`, `RESUME`, `STOP` e `HISTORY`.
-- [ ] Fazer os subcomandos CLI conversarem com o daemon via `ipc.rs`.
-- [ ] Implementar detecção de sessão finalizada no daemon, com transição para `Finished` apenas uma vez.
+- [x] Implementar `pomo status` via daemon IPC.
+- [x] Implementar daemon com Unix Socket e protocolo JSON para `STATUS`, `START`, `PAUSE`, `RESUME`, `STOP` e `HISTORY`.
+- [x] Fazer os subcomandos CLI conversarem com o daemon via `ipc.rs`.
+- [x] Implementar detecção de sessão finalizada no daemon, com transição para `Finished` apenas uma vez.
 - [ ] Implementar notificação e som em `notify.rs`, tolerando ausência de `notify-send`, `paplay`, `mpv` ou arquivo de som.
 - [x] Implementar histórico JSONL apenas para sessões concluídas com sucesso.
 - [x] Implementar `pomo history` com resumo do dia: sessões de foco, tempo focado e pausas concluídas.

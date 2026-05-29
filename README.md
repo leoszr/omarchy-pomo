@@ -4,9 +4,17 @@ Pomodoro em Rust para Omarchy/Hyprland. Objetivo do MVP: daemon como fonte de ve
 
 ## Estado atual
 
-Sprint 3 concluída: timer local, histórico JSONL e resumo diário.
+Sprint 4 concluída: daemon via Unix Socket como fonte de verdade e CLI via IPC.
 
 Comandos atuais:
+
+Em um terminal, inicie o daemon:
+
+```bash
+cargo run -- daemon
+```
+
+Em outro terminal, use a CLI:
 
 ```bash
 cargo run -- start --profile 25-5
@@ -21,7 +29,9 @@ cargo run -- stop
 cargo run -- history
 ```
 
-Ainda não há daemon, Waybar ou TUI implementados.
+Se o daemon não estiver rodando, a CLI retorna erro amigável pedindo `omarchy-pomo daemon`.
+
+Ainda não há Waybar ou TUI implementados.
 
 ## Arquivos locais
 
@@ -30,7 +40,7 @@ O estado local fica em:
 ```text
 ~/.local/state/omarchy-pomo/state.json
 ~/.local/state/omarchy-pomo/history.jsonl
-~/.local/state/omarchy-pomo/pomo.sock      # reservado para daemon futuro
+~/.local/state/omarchy-pomo/pomo.sock
 ```
 
 Quando `state.json` não existe, o estado inicial é `Idle`.

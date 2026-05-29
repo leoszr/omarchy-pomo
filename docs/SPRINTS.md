@@ -145,6 +145,8 @@ Registrar sessões concluídas e exibir resumo diário via CLI.
 
 ## Sprint 4 — IPC e daemon como fonte de verdade
 
+Status: concluída.
+
 ### Objetivo
 
 Mover a fonte de verdade para o daemon via Unix Socket e fazer CLI conversar por IPC.
