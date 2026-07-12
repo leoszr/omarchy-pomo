@@ -632,14 +632,15 @@ mod tests {
             failures_left: 1,
         };
 
-        assert!(refresh_finished_state_with_notifier(&paths, &mut notifier).is_err());
+        assert!(reconcile_finished_state_at(&paths, chrono::Local::now(), &mut notifier).is_err());
         let after_failure = state::read_state(&paths).unwrap();
         assert_eq!(after_failure.status, TimerStatus::Finished);
         assert!(after_failure.history_recorded);
         assert!(!after_failure.notification_sent);
         assert_eq!(history::read_entries(&paths).unwrap().len(), 1);
 
-        let recovered = refresh_finished_state_with_notifier(&paths, &mut notifier).unwrap();
+        let recovered =
+            reconcile_finished_state_at(&paths, chrono::Local::now(), &mut notifier).unwrap();
 
         assert!(recovered.notification_sent);
         assert_eq!(notifier.calls, 2);
@@ -681,7 +682,7 @@ mod tests {
         .unwrap();
         let mut notifier = MockNotifier::default();
 
-        let state = refresh_finished_state_with_notifier(&paths, &mut notifier).unwrap();
+        let state = reconcile_finished_state_at(&paths, now, &mut notifier).unwrap();
 
         assert_eq!(state.status, TimerStatus::Finished);
         assert!(state.session_id.is_some());
