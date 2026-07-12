@@ -5,7 +5,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::{state, tui::app::TuiApp};
+use crate::{formatting, tui::app::TuiApp};
 
 pub fn render(frame: &mut Frame, app: &TuiApp) {
     let area = frame.area();
@@ -45,11 +45,12 @@ pub fn render(frame: &mut Frame, app: &TuiApp) {
         format!("Erro: {error}")
     } else if let Some(state) = &app.state {
         format!(
-            "Status: {}\nSessão: {}\nTipo: {}\nRestante: {}",
-            status_name(&state.status),
+            "Status: {}\nSessão: {}\nTipo: {}\nCategoria: {}\nRestante: {}",
+            formatting::status(&state.status),
             state.label,
-            session_name(&state.session_type),
-            format_duration(app.remaining_secs())
+            formatting::session_type(&state.session_type),
+            formatting::category(state.category),
+            formatting::duration(app.remaining_secs())
         )
     } else {
         "Conectando ao daemon...".to_string()
@@ -75,7 +76,7 @@ pub fn render(frame: &mut Frame, app: &TuiApp) {
             format!(
                 "Hoje: {} foco(s), {} focado, {} pausa(s)",
                 summary.focus_sessions,
-                format_duration(summary.focused_secs),
+                formatting::duration(summary.focused_secs),
                 summary.break_sessions
             )
         })
@@ -88,25 +89,4 @@ pub fn render(frame: &mut Frame, app: &TuiApp) {
         .block(Block::bordered().title("Atalhos")),
         footer,
     );
-}
-
-fn format_duration(secs: u64) -> String {
-    format!("{:02}:{:02}", secs / 60, secs % 60)
-}
-
-fn status_name(status: &state::TimerStatus) -> &'static str {
-    match status {
-        state::TimerStatus::Idle => "idle",
-        state::TimerStatus::Running => "running",
-        state::TimerStatus::Paused => "paused",
-        state::TimerStatus::Finished => "finished",
-    }
-}
-
-fn session_name(session_type: &state::SessionType) -> &'static str {
-    match session_type {
-        state::SessionType::Focus => "focus",
-        state::SessionType::ShortBreak => "short_break",
-        state::SessionType::Custom => "custom",
-    }
 }

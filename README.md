@@ -4,7 +4,7 @@ Pomodoro em Rust para Omarchy/Hyprland. Objetivo do MVP: daemon como fonte de ve
 
 ## Estado atual
 
-MVP concluído: TUI com tempo customizado, daemon via Unix Socket, CLI via IPC, JSON para Waybar, notificação/som opcional, exemplos Waybar/Hyprland e build release verificado.
+MVP concluído: TUI com tempo customizado, daemon via Unix Socket, CLI via IPC, JSON para Waybar, notificação/som opcional, exemplos Waybar/Hyprland e build release verificado. A API pública não inclui tarefas; esse recurso está fora do MVP.
 
 ## Instalação local
 
@@ -178,13 +178,31 @@ O estado local fica em:
 
 Quando `state.json` não existe, o estado inicial é `Idle`.
 
+Exemplo de sessão customizada persistida (a categoria não depende do label):
+
+```json
+{"status":"running","session_type":"custom","category":"break","label":"Descanso","duration_secs":300,"started_at":"2026-05-29T10:00:00-03:00","paused_remaining_secs":null}
+```
+
 `history.jsonl` é append-only. Cada linha registra uma sessão concluída:
 
 ```json
 {"session_id":"session-...","date":"2026-05-29","type":"focus","label":"25/5 Focus","duration_secs":1500,"completed":true,"finished_at":"2026-05-29T10:00:00-03:00"}
 ```
 
-`stop` manual não escreve histórico. Linhas inválidas em `history.jsonl` são ignoradas no resumo.
+`stop` manual não escreve histórico. Linhas inválidas não entram no resumo, mas
+geram diagnóstico observável no stderr (com número da linha).
+
+O estado do timer também possui `category` (`focus` ou `break`), que é a fonte
+tipada para histórico, Waybar, CLI e TUI. O campo `label` é apenas texto de
+exibição e pode ser traduzido ou arbitrário. Estados antigos sem `category`
+continuam legíveis: o formato antigo gerado para `Custom Break (N min)` é
+migrado para `break`; outros customizados legados assumem `focus` por falta de
+informação semântica. O próximo `write` persiste o campo novo.
+
+Ao ler o histórico, entradas válidas são preservadas. Para cada linha inválida,
+o daemon emite diagnóstico no stderr com o número da linha e o erro de parsing;
+a corrupção não é apagada silenciosamente.
 
 `state.json` é salvo com temporário no mesmo diretório, `fsync` e rename atômico. O
 temporário usa permissão `0600`, e é removido quando uma etapa da gravação falha.

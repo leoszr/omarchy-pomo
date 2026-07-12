@@ -6,16 +6,16 @@ Criar um aplicativo Pomodoro em Rust para Omarchy/Hyprland que funcione como uti
 
 Objetivo do MVP: entregar um Pomodoro simples, estável e integrado ao desktop Linux, sem ciclos automáticos complexos nem recursos de estatísticas avançadas.
 
-Estado do projeto: MVP concluído nas Sprints 1 a 9, com ciclo de vida autônomo, persistência durável e IPC endurecido. Implementado: base de domínio, caminhos locais, persistência crash-safe em `state.json`, lógica de timer por timestamp, histórico JSONL idempotente, daemon via Unix Socket com tick autônomo, framing/limites/timeouts e concorrência limitada, CLI via IPC, JSON para Waybar, notificação/som opcional, TUI Ratatui com tempo customizado, exemplos Waybar/Hyprland e build release verificado. O daemon é a fonte de verdade.
+Estado do projeto: MVP concluído e endurecido. Implementado: ciclo de vida autônomo, categoria semântica tipada, persistência crash-safe, histórico JSONL idempotente com diagnósticos de corrupção, IPC com framing/limites/timeouts e concorrência limitada, notificações assíncronas, cache de histórico e polling otimizado da TUI. O daemon é a fonte de verdade.
 
 Fluxo desejado:
 
 ```text
 Waybar custom module
-  └── pomo status --waybar
+  └── omarchy-pomo status --waybar
         ↓ clique
 Terminal flutuante Hyprland
-  └── pomo tui
+  └── omarchy-pomo tui
         ↓ IPC
 Daemon Pomodoro
   ├── estado do timer
@@ -46,21 +46,21 @@ atualização rápida sem transformar a TUI em fonte de verdade.
 
 ### Arquitetura recomendada
 
-Implementar um binário Rust único chamado `pomo` com subcomandos via `clap`:
+Implementar um binário Rust único chamado `omarchy-pomo` com subcomandos via `clap`:
 
 ```bash
-pomo daemon
-pomo status
-pomo status --waybar
-pomo tui
-pomo start --profile 25-5
-pomo start --profile 30-10
-pomo start --break
-pomo start --custom 45 --type focus
-pomo pause
-pomo resume
-pomo stop
-pomo history
+omarchy-pomo daemon
+omarchy-pomo status
+omarchy-pomo status --waybar
+omarchy-pomo tui
+omarchy-pomo start --profile 25-5
+omarchy-pomo start --profile 30-10
+omarchy-pomo start --break
+omarchy-pomo start --custom 45 --type focus
+omarchy-pomo pause
+omarchy-pomo resume
+omarchy-pomo stop
+omarchy-pomo history
 ```
 
 O daemon deve expor um Unix Socket em:
@@ -89,11 +89,16 @@ Exemplo de response:
 
 ```json
 {
-  "status": "running",
-  "session_type": "focus",
-  "label": "25/5 Focus",
-  "remaining_secs": 1122,
-  "duration_secs": 1500
+  "type": "state",
+  "state": {
+    "status": "running",
+    "session_type": "focus",
+    "category": "focus",
+    "label": "25/5 Focus",
+    "duration_secs": 1500,
+    "started_at": "2026-05-04T14:30:00-03:00",
+    "paused_remaining_secs": null
+  }
 }
 ```
 
@@ -164,6 +169,7 @@ Exemplo de `state.json`:
 {
   "status": "running",
   "session_type": "focus",
+  "category": "focus",
   "label": "25/5 Focus",
   "duration_secs": 1500,
   "started_at": "2026-05-04T14:30:00-03:00",
@@ -180,9 +186,18 @@ Exemplo de `history.jsonl`:
 {"session_id":"session-...","date":"2026-05-04","type":"focus","label":"25/5","duration_secs":1500,"completed":true,"finished_at":"2026-05-04T15:00:00-03:00"}
 ```
 
+`category` (`focus` ou `break`) é a fonte tipada usada por timer, histórico,
+Waybar, CLI e TUI; `label` é apenas texto exibido. Estados legados sem esse
+campo continuam legíveis: o formato anterior `Custom Break (N min)` migra para
+`break`, e outros customizados legados assumem `focus` por falta de informação.
+
+O leitor de histórico preserva as linhas válidas e retorna diagnóstico
+estruturado para cada linha inválida (número e erro); o daemon também emite os
+diagnósticos no stderr. A corrupção não é apagada silenciosamente.
+
 ### Waybar
 
-Implementar `pomo status --waybar` retornando JSON compatível com módulo customizado da Waybar:
+Implementar `omarchy-pomo status --waybar` retornando JSON compatível com módulo customizado da Waybar:
 
 ```json
 {
@@ -218,10 +233,10 @@ Exemplo de Waybar:
 
 ```jsonc
 "custom/pomodoro": {
-  "exec": "pomo status --waybar",
+  "exec": "omarchy-pomo status --waybar",
   "return-type": "json",
   "interval": 1,
-  "on-click": "kitty --class omarchy-pomo -e pomo tui",
+  "on-click": "kitty --class omarchy-pomo -e omarchy-pomo tui",
   "tooltip": true
 }
 ```
@@ -376,14 +391,14 @@ Uso esperado:
 - [x] Implementar resolução de caminhos em `~/.local/state/omarchy-pomo` e criação segura dos diretórios necessários.
 - [x] Implementar persistência de `state.json` e leitura de estado inicial `Idle` quando não existir arquivo.
 - [x] Implementar lógica de timer em `timer.rs`: start, pause, resume, stop, finish e cálculo por timestamp.
-- [x] Implementar `pomo status` via daemon IPC.
+- [x] Implementar `omarchy-pomo status` via daemon IPC.
 - [x] Implementar daemon com Unix Socket e protocolo JSON para `STATUS`, `START`, `PAUSE`, `RESUME`, `STOP` e `HISTORY`.
 - [x] Fazer os subcomandos CLI conversarem com o daemon via `ipc.rs`.
 - [x] Implementar detecção de sessão finalizada no daemon, com transição para `Finished` apenas uma vez.
 - [x] Implementar notificação e som em `notify.rs`, tolerando ausência de `notify-send`, `paplay`, `mpv` ou arquivo de som.
 - [x] Implementar histórico JSONL apenas para sessões concluídas com sucesso.
-- [x] Implementar `pomo history` com resumo do dia: sessões de foco, tempo focado e pausas concluídas.
-- [x] Implementar `pomo status --waybar` com JSON válido, classes por estado e saída de erro útil se o daemon estiver indisponível.
+- [x] Implementar `omarchy-pomo history` com resumo do dia: sessões de foco, tempo focado e pausas concluídas.
+- [x] Implementar `omarchy-pomo status --waybar` com JSON válido, classes por estado e saída de erro útil se o daemon estiver indisponível.
 - [x] Implementar TUI com Ratatui: tela principal, atualização periódica por status, atalhos e histórico básico.
 - [x] Implementar fluxo de tempo customizado na TUI de forma simples, por exemplo modal/input numérico.
 - [x] Criar exemplos de configuração para Waybar e Hyprland.
@@ -422,18 +437,18 @@ Adicionar testes unitários para:
 Fluxo final esperado:
 
 ```text
-1. Rodar `pomo daemon`.
-2. Rodar `pomo status` e confirmar estado idle.
-3. Rodar `pomo start --profile 25-5`.
-4. Confirmar que `pomo status` mostra tempo restante.
-5. Confirmar que `pomo status --waybar` retorna JSON válido.
-6. Rodar `pomo pause` e confirmar estado paused.
-7. Rodar `pomo resume` e confirmar contagem.
-8. Abrir `pomo tui` e controlar o timer pela interface.
+1. Rodar `omarchy-pomo daemon`.
+2. Rodar `omarchy-pomo status` e confirmar estado idle.
+3. Rodar `omarchy-pomo start --profile 25-5`.
+4. Confirmar que `omarchy-pomo status` mostra tempo restante.
+5. Confirmar que `omarchy-pomo status --waybar` retorna JSON válido.
+6. Rodar `omarchy-pomo pause` e confirmar estado paused.
+7. Rodar `omarchy-pomo resume` e confirmar contagem.
+8. Abrir `omarchy-pomo tui` e controlar o timer pela interface.
 9. Fechar a TUI e confirmar que o timer continua rodando.
 10. Aguardar uma sessão curta customizada terminar.
 11. Confirmar notificação, som e entrada em `history.jsonl`.
-12. Confirmar que `pomo history` mostra resumo do dia.
+12. Confirmar que `omarchy-pomo history` mostra resumo do dia.
 13. Configurar Waybar e Hyprland com os exemplos.
 14. Clicar na Waybar e confirmar abertura da TUI flutuante.
 ```

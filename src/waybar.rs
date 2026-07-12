@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    state::{SessionType, TimerState, TimerStatus},
+    formatting,
+    state::{SessionCategory, TimerState, TimerStatus},
     timer,
 };
 
@@ -15,11 +16,13 @@ pub struct WaybarOutput {
 
 pub fn from_state(state: &TimerState, now: chrono::DateTime<chrono::Local>) -> WaybarOutput {
     let remaining = timer::remaining_secs_at(state, now);
-    let remaining_text = format_duration(remaining);
+    let remaining_text = formatting::duration(remaining);
     let class_name = class_for(state).to_string();
     let text = match state.status {
         TimerStatus::Idle => "󰔟".to_string(),
-        TimerStatus::Running if is_break(state) => format!("☕ {remaining_text}"),
+        TimerStatus::Running if state.category == SessionCategory::Break => {
+            format!("☕ {remaining_text}")
+        }
         TimerStatus::Running => format!("󰔟 {remaining_text}"),
         TimerStatus::Paused => format!("󰏤 {remaining_text}"),
         TimerStatus::Finished => " pronto".to_string(),
@@ -49,25 +52,15 @@ fn class_for(state: &TimerState) -> &'static str {
         TimerStatus::Idle => "idle",
         TimerStatus::Paused => "paused",
         TimerStatus::Finished => "finished",
-        TimerStatus::Running if is_break(state) => "break",
+        TimerStatus::Running if state.category == SessionCategory::Break => "break",
         TimerStatus::Running => "running",
     }
-}
-
-fn is_break(state: &TimerState) -> bool {
-    state.session_type == SessionType::ShortBreak
-        || (state.session_type == SessionType::Custom
-            && state.label.to_ascii_lowercase().contains("break"))
-}
-
-fn format_duration(secs: u64) -> String {
-    format!("{:02}:{:02}", secs / 60, secs % 60)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::SessionType;
+    use crate::state::{SessionCategory, SessionType};
 
     #[test]
     fn json_gerado_e_valido() {
@@ -95,6 +88,20 @@ mod tests {
             60,
             now,
         );
+
+        assert_eq!(from_state(&state, now).class_name, "break");
+    }
+
+    #[test]
+    fn classe_break_custom_nao_depende_do_label() {
+        let now = chrono::Local::now();
+        let mut state = crate::timer::start_custom_session(
+            SessionCategory::Break,
+            "Descanso".to_string(),
+            60,
+            now,
+        );
+        state.label = "Pausa traduzida".to_string();
 
         assert_eq!(from_state(&state, now).class_name, "break");
     }

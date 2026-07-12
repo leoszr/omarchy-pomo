@@ -1,10 +1,10 @@
 mod cli;
 mod daemon;
+mod formatting;
 mod history;
 mod ipc;
 mod notify;
 mod state;
-mod task;
 mod timer;
 mod tui;
 mod waybar;
@@ -39,9 +39,6 @@ fn run() -> anyhow::Result<()> {
         Some(cli::Commands::Stop) => print_response(send(ipc::IpcRequest::Stop)?)?,
         Some(cli::Commands::History) => print_response(send(ipc::IpcRequest::History)?)?,
         Some(cli::Commands::Tui) => tui::run()?,
-        Some(cli::Commands::Task { action }) => {
-            task::run(&action);
-        }
         None => {
             println!("Use --help para ver os comandos disponíveis.");
         }
@@ -77,11 +74,12 @@ fn print_waybar_status() -> anyhow::Result<()> {
 fn format_status(current: &state::TimerState) -> String {
     let remaining = timer::remaining_secs_at(current, chrono::Local::now());
     format!(
-        "status={} tipo={} label={} restante={}",
-        status_name(&current.status),
-        session_name(&current.session_type),
+        "status={} tipo={} categoria={} label={} restante={}",
+        formatting::status(&current.status),
+        formatting::session_type(&current.session_type),
+        formatting::category(current.category),
         current.label,
-        format_duration(remaining)
+        formatting::duration(remaining)
     )
 }
 
@@ -90,30 +88,9 @@ fn format_summary(summary: &history::DailySummary) -> String {
         "data={} foco_sessoes={} foco_total={} pausas={}",
         summary.date,
         summary.focus_sessions,
-        format_duration(summary.focused_secs),
+        formatting::duration(summary.focused_secs),
         summary.break_sessions
     )
-}
-
-fn format_duration(secs: u64) -> String {
-    format!("{:02}:{:02}", secs / 60, secs % 60)
-}
-
-fn status_name(status: &state::TimerStatus) -> &'static str {
-    match status {
-        state::TimerStatus::Idle => "idle",
-        state::TimerStatus::Running => "running",
-        state::TimerStatus::Paused => "paused",
-        state::TimerStatus::Finished => "finished",
-    }
-}
-
-fn session_name(session_type: &state::SessionType) -> &'static str {
-    match session_type {
-        state::SessionType::Focus => "focus",
-        state::SessionType::ShortBreak => "short_break",
-        state::SessionType::Custom => "custom",
-    }
 }
 
 #[cfg(test)]
@@ -122,6 +99,6 @@ mod tests {
 
     #[test]
     fn formata_duracao_mm_ss() {
-        assert_eq!(format_duration(65), "01:05");
+        assert_eq!(formatting::duration(65), "01:05");
     }
 }

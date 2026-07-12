@@ -216,7 +216,7 @@ fn run_command(spawner: &dyn CommandSpawner, spec: &CommandSpec) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{SessionType, TimerStatus};
+    use crate::state::{SessionCategory, SessionType, TimerStatus};
     use std::{
         collections::VecDeque,
         os::unix::process::ExitStatusExt,
@@ -228,6 +228,7 @@ mod tests {
         TimerState {
             status: TimerStatus::Finished,
             session_type: SessionType::Focus,
+            category: SessionCategory::Focus,
             label: "25/5 Focus".to_string(),
             duration_secs: 1_500,
             started_at: None,

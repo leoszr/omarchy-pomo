@@ -27,7 +27,16 @@ pub enum SessionType {
     Custom,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Categoria semântica da sessão. Diferente de `label`, este valor é a fonte
+/// de verdade para contagens, ícones e classes de saída.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionCategory {
+    Focus,
+    Break,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TimerState {
     pub status: TimerStatus,
     pub session_type: SessionType,
@@ -35,15 +44,63 @@ pub struct TimerState {
     pub duration_secs: u64,
     pub started_at: Option<DateTime<Local>>,
     pub paused_remaining_secs: Option<u64>,
-    /// Stable identity used to make completion recovery idempotent.
-    #[serde(default)]
+    pub category: SessionCategory,
     pub session_id: Option<String>,
-    /// Commit marker for the history side of completion.
-    #[serde(default)]
     pub history_recorded: bool,
-    /// Commit marker for the notification side of completion.
-    #[serde(default)]
     pub notification_sent: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct TimerStateData {
+    status: TimerStatus,
+    session_type: SessionType,
+    label: String,
+    duration_secs: u64,
+    started_at: Option<DateTime<Local>>,
+    paused_remaining_secs: Option<u64>,
+    #[serde(default, alias = "session_category")]
+    category: Option<SessionCategory>,
+    #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
+    history_recorded: bool,
+    #[serde(default)]
+    notification_sent: bool,
+}
+
+impl<'de> Deserialize<'de> for TimerState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let data = TimerStateData::deserialize(deserializer)?;
+        let category = data.category.unwrap_or_else(|| match data.session_type {
+            SessionType::Focus => SessionCategory::Focus,
+            SessionType::ShortBreak => SessionCategory::Break,
+            SessionType::Custom => legacy_custom_category(&data.label),
+        });
+
+        Ok(Self {
+            status: data.status,
+            session_type: data.session_type,
+            label: data.label,
+            duration_secs: data.duration_secs,
+            started_at: data.started_at,
+            paused_remaining_secs: data.paused_remaining_secs,
+            category,
+            session_id: data.session_id,
+            history_recorded: data.history_recorded,
+            notification_sent: data.notification_sent,
+        })
+    }
+}
+
+fn legacy_custom_category(label: &str) -> SessionCategory {
+    if label.starts_with("Custom Break (") && label.ends_with(" min)") {
+        SessionCategory::Break
+    } else {
+        SessionCategory::Focus
+    }
 }
 
 impl TimerState {
@@ -55,6 +112,7 @@ impl TimerState {
             duration_secs: 0,
             started_at: None,
             paused_remaining_secs: None,
+            category: SessionCategory::Focus,
             session_id: None,
             history_recorded: false,
             notification_sent: false,
@@ -242,6 +300,7 @@ mod tests {
             duration_secs: 1_500,
             started_at: Some(Local::now()),
             paused_remaining_secs: None,
+            category: SessionCategory::Focus,
             session_id: Some("session-test".to_string()),
             history_recorded: false,
             notification_sent: false,
@@ -376,5 +435,73 @@ mod tests {
             paths.socket_file,
             PathBuf::from("/tmp/omarchy-pomo-test/pomo.sock")
         );
+    }
+
+    #[test]
+    fn migra_estado_legado_custom_break_conhecido() {
+        let raw = r#"{
+            "status":"running",
+            "session_type":"custom",
+            "label":"Custom Break (5 min)",
+            "duration_secs":300,
+            "started_at":null,
+            "paused_remaining_secs":null
+        }"#;
+
+        let state: TimerState = serde_json::from_str(raw).unwrap();
+
+        assert_eq!(state.category, SessionCategory::Break);
+    }
+
+    #[test]
+    fn migra_estado_legado_sem_categoria_para_foco() {
+        let raw = r#"{
+            "status":"running",
+            "session_type":"custom",
+            "label":"Pausa traduzida",
+            "duration_secs":300,
+            "started_at":null,
+            "paused_remaining_secs":null
+        }"#;
+
+        let state: TimerState = serde_json::from_str(raw).unwrap();
+
+        assert_eq!(state.category, SessionCategory::Focus);
+    }
+
+    #[test]
+    fn serializa_categoria_tipada() {
+        let state = TimerState {
+            session_type: SessionType::Custom,
+            category: SessionCategory::Break,
+            ..running_state()
+        };
+
+        let raw = serde_json::to_value(state).unwrap();
+
+        assert_eq!(raw["category"], "break");
+    }
+
+    #[test]
+    fn read_state_migra_arquivo_legado() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = StatePaths::from_base(dir.path().join("omarchy-pomo"));
+        paths.ensure_base_dir().unwrap();
+        fs::write(
+            &paths.state_file,
+            r#"{
+            "status":"paused",
+            "session_type":"custom",
+            "label":"Custom Break (5 min)",
+            "duration_secs":300,
+            "started_at":null,
+            "paused_remaining_secs":120
+        }"#,
+        )
+        .unwrap();
+
+        let state = read_state(&paths).unwrap();
+
+        assert_eq!(state.category, SessionCategory::Break);
     }
 }

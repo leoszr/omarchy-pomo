@@ -3,7 +3,7 @@ use chrono::{DateTime, Local};
 
 use crate::{
     cli::{CustomSessionType, StartArgs},
-    state::{SessionType, TimerState, TimerStatus},
+    state::{SessionCategory, SessionType, TimerState, TimerStatus},
 };
 
 /// Limite deliberado para evitar durações absurdas e overflow na conversão
@@ -32,14 +32,18 @@ pub fn start_from_args(args: &StartArgs, now: DateTime<Local>) -> anyhow::Result
     }
 
     if let Some(minutes) = args.custom {
-        let session_type = match args.session_type {
-            Some(CustomSessionType::Focus) => "Focus",
-            Some(CustomSessionType::Break) => "Break",
+        let category = match args.session_type {
+            Some(CustomSessionType::Focus) => SessionCategory::Focus,
+            Some(CustomSessionType::Break) => SessionCategory::Break,
             None => bail!("--custom exige --type <focus|break>"),
         };
-        return Ok(start_session(
-            SessionType::Custom,
-            format!("Custom {session_type} ({minutes} min)"),
+        let category_name = match category {
+            SessionCategory::Focus => "Focus",
+            SessionCategory::Break => "Break",
+        };
+        return Ok(start_custom_session(
+            category,
+            format!("Custom {category_name} ({minutes} min)"),
             duration_secs_from_minutes(minutes)?,
             now,
         ));
@@ -68,6 +72,29 @@ pub fn start_session(
     duration_secs: u64,
     now: DateTime<Local>,
 ) -> TimerState {
+    let category = match session_type {
+        SessionType::ShortBreak => SessionCategory::Break,
+        SessionType::Focus | SessionType::Custom => SessionCategory::Focus,
+    };
+    start_session_with_category(session_type, category, label, duration_secs, now)
+}
+
+pub fn start_custom_session(
+    category: SessionCategory,
+    label: String,
+    duration_secs: u64,
+    now: DateTime<Local>,
+) -> TimerState {
+    start_session_with_category(SessionType::Custom, category, label, duration_secs, now)
+}
+
+fn start_session_with_category(
+    session_type: SessionType,
+    category: SessionCategory,
+    label: String,
+    duration_secs: u64,
+    now: DateTime<Local>,
+) -> TimerState {
     TimerState {
         status: TimerStatus::Running,
         session_type,
@@ -75,6 +102,7 @@ pub fn start_session(
         duration_secs,
         started_at: Some(now),
         paused_remaining_secs: None,
+        category,
         session_id: Some(crate::state::new_session_id()),
         history_recorded: false,
         notification_sent: false,
@@ -199,6 +227,7 @@ mod tests {
         let paused = TimerState {
             status: TimerStatus::Paused,
             session_type: SessionType::Focus,
+            category: SessionCategory::Focus,
             label: "teste".to_string(),
             duration_secs: 60,
             started_at: None,

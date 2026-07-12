@@ -9,7 +9,7 @@ use anyhow::Context;
 use chrono::{DateTime, Local, NaiveDate};
 use serde::{Deserialize, Serialize};
 
-use crate::state::{SessionType, StatePaths, TimerState};
+use crate::state::{SessionCategory, StatePaths, TimerState};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -40,12 +40,24 @@ pub struct DailySummary {
     pub break_sessions: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryDiagnostic {
+    pub line: usize,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedHistory {
+    pub entries: Vec<HistoryEntry>,
+    pub diagnostics: Vec<HistoryDiagnostic>,
+}
+
 impl HistoryEntry {
     pub fn completed_from_state(state: &TimerState, finished_at: DateTime<Local>) -> Self {
         Self {
             session_id: state.session_id.clone(),
             date: finished_at.date_naive(),
-            session_type: history_session_type(state),
+            session_type: history_session_type(state.category),
             label: state.label.clone(),
             duration_secs: state.duration_secs,
             completed: true,
@@ -82,16 +94,32 @@ pub fn append_entry_if_absent(paths: &StatePaths, entry: &HistoryEntry) -> anyho
 }
 
 pub fn read_entries(paths: &StatePaths) -> anyhow::Result<Vec<HistoryEntry>> {
+    let parsed = read_entries_with_diagnostics(paths)?;
+    for diagnostic in &parsed.diagnostics {
+        eprintln!(
+            "histórico inválido: linha {}: {}",
+            diagnostic.line, diagnostic.message
+        );
+    }
+    Ok(parsed.entries)
+}
+
+pub fn read_entries_with_diagnostics(paths: &StatePaths) -> anyhow::Result<ParsedHistory> {
     let raw = match fs::read_to_string(&paths.history_file) {
         Ok(raw) => raw,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            return Ok(ParsedHistory {
+                entries: Vec::new(),
+                diagnostics: Vec::new(),
+            })
+        }
         Err(error) => {
             return Err(error)
                 .with_context(|| format!("falha ao abrir {}", paths.history_file.display()))
         }
     };
 
-    Ok(parse_jsonl_lossy(&raw))
+    Ok(parse_jsonl(&raw))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,12 +180,32 @@ fn history_fingerprint(paths: &StatePaths) -> anyhow::Result<HistoryFingerprint>
     }
 }
 
-pub fn parse_jsonl_lossy(raw: &str) -> Vec<HistoryEntry> {
+pub fn parse_jsonl(raw: &str) -> ParsedHistory {
+    let mut parsed = ParsedHistory {
+        entries: Vec::new(),
+        diagnostics: Vec::new(),
+    };
     let mut seen = HashSet::new();
-    raw.lines()
-        .filter_map(|line| serde_json::from_str::<HistoryEntry>(line).ok())
-        .filter(|entry| seen.insert(session_key(entry)))
-        .collect()
+
+    for (line_index, line) in raw.lines().enumerate() {
+        let line_number = line_index + 1;
+        if line.trim().is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<HistoryEntry>(line) {
+            Ok(entry) => {
+                if seen.insert(session_key(&entry)) {
+                    parsed.entries.push(entry);
+                }
+            }
+            Err(error) => parsed.diagnostics.push(HistoryDiagnostic {
+                line: line_number,
+                message: error.to_string(),
+            }),
+        }
+    }
+
+    parsed
 }
 
 pub fn summarize_day(entries: &[HistoryEntry], date: NaiveDate) -> DailySummary {
@@ -182,14 +230,10 @@ pub fn summarize_day(entries: &[HistoryEntry], date: NaiveDate) -> DailySummary 
     summary
 }
 
-fn history_session_type(state: &TimerState) -> HistorySessionType {
-    match state.session_type {
-        SessionType::ShortBreak => HistorySessionType::Break,
-        SessionType::Focus => HistorySessionType::Focus,
-        SessionType::Custom if state.label.to_ascii_lowercase().contains("break") => {
-            HistorySessionType::Break
-        }
-        SessionType::Custom => HistorySessionType::Focus,
+fn history_session_type(category: SessionCategory) -> HistorySessionType {
+    match category {
+        SessionCategory::Break => HistorySessionType::Break,
+        SessionCategory::Focus => HistorySessionType::Focus,
     }
 }
 
@@ -231,7 +275,7 @@ fn legacy_key(entry: &HistoryEntry) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::TimerStatus;
+    use crate::state::{SessionCategory, SessionType, TimerStatus};
 
     fn entry(session_type: HistorySessionType, date: NaiveDate, secs: u64) -> HistoryEntry {
         HistoryEntry {
@@ -262,7 +306,7 @@ mod tests {
             .unwrap()
         );
 
-        let entries = parse_jsonl_lossy(&raw);
+        let entries = parse_jsonl(&raw).entries;
 
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].duration_secs, 1_500);
@@ -273,9 +317,42 @@ mod tests {
         let now = Local::now();
         let valid =
             serde_json::to_string(&entry(HistorySessionType::Focus, now.date_naive(), 60)).unwrap();
-        let entries = parse_jsonl_lossy(&format!("nao-json\n{valid}\n"));
+        let entries = parse_jsonl(&format!("nao-json\n{valid}\n")).entries;
 
         assert_eq!(entries.len(), 1);
+    }
+
+    #[test]
+    fn historico_parcial_preserva_validas_e_informa_linha_invalida() {
+        let today = Local::now().date_naive();
+        let first = serde_json::to_string(&entry(HistorySessionType::Focus, today, 60)).unwrap();
+        let second = serde_json::to_string(&entry(HistorySessionType::Break, today, 30)).unwrap();
+
+        let parsed = parse_jsonl(&format!("{first}\ncorrompida\n{second}\n"));
+
+        assert_eq!(parsed.entries.len(), 2);
+        assert_eq!(parsed.diagnostics.len(), 1);
+        assert_eq!(parsed.diagnostics[0].line, 2);
+        assert!(!parsed.diagnostics[0].message.is_empty());
+    }
+
+    #[test]
+    fn leitura_de_arquivo_retorna_diagnosticos_sem_perder_validas() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = StatePaths::from_base(dir.path().join("omarchy-pomo"));
+        paths.ensure_base_dir().unwrap();
+        let today = Local::now().date_naive();
+        let valid = serde_json::to_string(&entry(HistorySessionType::Focus, today, 60)).unwrap();
+        fs::write(
+            &paths.history_file,
+            format!("{valid}\n{invalid}\n", invalid = "{broken"),
+        )
+        .unwrap();
+
+        let parsed = read_entries_with_diagnostics(&paths).unwrap();
+
+        assert_eq!(parsed.entries.len(), 1);
+        assert_eq!(parsed.diagnostics[0].line, 2);
     }
 
     #[test]
@@ -300,6 +377,7 @@ mod tests {
         let state = TimerState {
             status: TimerStatus::Finished,
             session_type: SessionType::Focus,
+            category: SessionCategory::Focus,
             label: "25/5 Focus".to_string(),
             duration_secs: 1_500,
             started_at: None,
@@ -331,7 +409,7 @@ mod tests {
             serde_json::to_string(&legacy).unwrap()
         );
 
-        assert_eq!(parse_jsonl_lossy(&raw).len(), 2);
+        assert_eq!(parse_jsonl(&raw).entries.len(), 2);
     }
 
     #[test]
@@ -384,5 +462,25 @@ mod tests {
         let summary = cache.summary(&paths, today).unwrap();
         assert_eq!(summary.break_sessions, 1);
         assert_eq!(cache.reads(), 2);
+    }
+
+    #[test]
+    fn entry_customizada_usa_categoria_mesmo_com_label_arbitrario() {
+        let now = Local::now();
+        let state = TimerState {
+            status: TimerStatus::Finished,
+            session_type: SessionType::Custom,
+            category: SessionCategory::Break,
+            label: "Descanso traduzido".to_string(),
+            duration_secs: 300,
+            started_at: None,
+            paused_remaining_secs: Some(0),
+            session_id: Some("custom-break".to_string()),
+            history_recorded: true,
+            notification_sent: true,
+        };
+
+        let entry = HistoryEntry::completed_from_state(&state, now);
+        assert_eq!(entry.session_type, HistorySessionType::Break);
     }
 }

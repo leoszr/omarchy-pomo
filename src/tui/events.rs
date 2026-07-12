@@ -96,6 +96,7 @@ mod tests {
         let state = TimerState {
             status: TimerStatus::Paused,
             session_type: crate::state::SessionType::Focus,
+            category: crate::state::SessionCategory::Focus,
             label: "teste".to_string(),
             duration_secs: 60,
             started_at: None,

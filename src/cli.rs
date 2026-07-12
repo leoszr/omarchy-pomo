@@ -27,11 +27,6 @@ pub enum Commands {
     History,
     /// Abre TUI para controlar o daemon
     Tui,
-    /// Gerencia tarefas
-    Task {
-        #[arg(default_value = "list")]
-        action: String,
-    },
 }
 
 #[derive(Args, Debug)]
@@ -143,5 +138,10 @@ mod tests {
         assert!(
             Cli::try_parse_from(["pomo", "start", "--custom", "0", "--type", "focus"]).is_err()
         );
+    }
+
+    #[test]
+    fn task_nao_e_comando_publico() {
+        assert!(Cli::try_parse_from(["pomo", "task"]).is_err());
     }
 }

@@ -438,3 +438,30 @@ Status: concluída nesta branch de performance.
 Há testes sem `sleep` para a decisão de não gravar estado, para reutilização e
 invalidação do cache após append, para os intervalos de polling e para a
 preservação de erro dentro da mesma rodada de refresh.
+
+## Sprint 10 — Modelo de domínio e limpeza de API (Sprint 6 de manutenção)
+
+Status: concluída.
+
+### Objetivo
+
+Remover decisões semânticas baseadas no texto do label, tornar a leitura do
+estado legado compatível e deixar a API pública limitada ao MVP.
+
+### Entregas
+
+- `TimerState.category` tipa `focus`/`break` para sessões customizadas.
+- Estados legados sem `category` são lidos com migração documentada; o formato
+  antigo `Custom Break (N min)` é preservado quando reconhecível.
+- Timer, histórico, CLI, TUI e Waybar usam a categoria tipada, não o label.
+- JSONL parcialmente corrompido preserva entradas válidas e emite diagnóstico
+  com linha e erro no stderr; a API de leitura também retorna os diagnósticos.
+- O comando público `Task` e seu módulo stub foram removidos.
+- Formatação pequena compartilhada foi centralizada.
+
+### Testes e critérios de aceite
+
+- Migração de `state.json` legado coberta por teste.
+- Labels traduzidos/arbitrários não alteram a categoria tipada.
+- Histórico parcial informa a linha inválida e preserva as linhas válidas.
+- `cargo fmt`, `cargo clippy -- -D warnings`, `cargo test` e `cargo build --release` passam.
