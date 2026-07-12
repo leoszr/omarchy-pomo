@@ -54,6 +54,12 @@ impl TuiApp {
         self.set_error_source(ErrorSource::Action, error);
     }
 
+    /// Whether the displayed state may be stale because the last status poll
+    /// failed. History and action failures intentionally do not affect this.
+    pub(super) fn status_error_active(&self) -> bool {
+        self.status_error.is_some()
+    }
+
     pub(super) fn set_error_source(&mut self, source: ErrorSource, error: impl Into<String>) {
         let error = Some(error.into());
         match source {
@@ -229,6 +235,49 @@ mod tests {
             },
         );
         assert!(app.error.is_none());
+    }
+
+    #[test]
+    fn estado_stale_indica_falha_de_status_e_recupera_no_proximo_estado() {
+        let mut app = TuiApp::default();
+        app.apply_response_from(
+            ErrorSource::Status,
+            IpcResponse::State {
+                state: crate::state::TimerState::idle(),
+            },
+        );
+        app.apply_response_from(
+            ErrorSource::Status,
+            IpcResponse::Error {
+                message: "daemon indisponível".to_string(),
+            },
+        );
+
+        assert!(app.state.is_some());
+        assert!(app.status_error_active());
+
+        app.apply_response_from(
+            ErrorSource::Status,
+            IpcResponse::State {
+                state: crate::state::TimerState::idle(),
+            },
+        );
+
+        assert!(!app.status_error_active());
+        assert!(app.error.is_none());
+    }
+
+    #[test]
+    fn falha_de_historico_nao_marca_estado_stale() {
+        let mut app = TuiApp::default();
+        app.apply_response_from(
+            ErrorSource::History,
+            IpcResponse::Error {
+                message: "histórico indisponível".to_string(),
+            },
+        );
+
+        assert!(!app.status_error_active());
     }
 
     #[test]
