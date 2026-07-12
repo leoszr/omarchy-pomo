@@ -8,6 +8,8 @@ use std::{
 
 use crate::state::TimerState;
 
+const MAX_PENDING_WORKERS: usize = 16;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandSpec {
     pub program: String,
@@ -72,18 +74,42 @@ impl ExternalNotifier {
         }
     }
 
-    pub fn shutdown(self) {
-        for worker in self.workers {
+    pub fn shutdown(mut self) {
+        self.join_workers();
+    }
+
+    fn join_workers(&mut self) {
+        for worker in std::mem::take(&mut self.workers) {
             if worker.join().is_err() {
                 eprintln!("notificação: worker terminou com panic");
             }
         }
     }
 
+    fn reap_finished(&mut self) {
+        let mut pending = Vec::with_capacity(self.workers.len());
+        for worker in std::mem::take(&mut self.workers) {
+            if worker.is_finished() {
+                if worker.join().is_err() {
+                    eprintln!("notificação: worker terminou com panic");
+                }
+            } else {
+                pending.push(worker);
+            }
+        }
+        self.workers = pending;
+    }
+
     fn enqueue<F>(&mut self, name: &'static str, job: F)
     where
         F: FnOnce(Arc<dyn CommandSpawner>) + Send + 'static,
     {
+        self.reap_finished();
+        if self.workers.len() >= MAX_PENDING_WORKERS {
+            eprintln!("notificação: limite de {MAX_PENDING_WORKERS} workers pendentes atingido");
+            return;
+        }
+
         let spawner = Arc::clone(&self.spawner);
         match thread::Builder::new()
             .name(name.to_string())
@@ -98,6 +124,16 @@ impl ExternalNotifier {
         self.enqueue(name, move |spawner| {
             run_command(&*spawner, &spec);
         });
+    }
+}
+
+impl Drop for ExternalNotifier {
+    fn drop(&mut self) {
+        // Dropping a JoinHandle detaches its thread. Join here so an implicit
+        // shutdown has the same no-zombie guarantee as the explicit one. The
+        // daemon keeps this object alive for its whole listener lifetime, so
+        // this never runs on the IPC request path.
+        self.join_workers();
     }
 }
 
@@ -352,5 +388,26 @@ mod tests {
             MockSpawner::with_results([MockOutcome::SpawnFailure, MockOutcome::Exit(true)]);
         assert!(run_audio(&spawner, Path::new("/tmp/done.ogg")));
         assert_eq!(spawner.calls().len(), 2);
+    }
+
+    #[test]
+    fn workers_concluidos_sao_reapados_sem_crescimento_da_colecao() {
+        let spawner = Arc::new(MockSpawner::with_outcomes(std::iter::repeat_n(true, 100)));
+        let mut notifier = ExternalNotifier::with_spawner(spawner.clone());
+
+        for _ in 0..100 {
+            notifier.enqueue_command("test-notification", notify_send_command(&finished_state()));
+            assert!(notifier.workers.len() <= MAX_PENDING_WORKERS);
+
+            while notifier.workers.iter().any(|worker| !worker.is_finished()) {
+                notifier.reap_finished();
+                thread::yield_now();
+            }
+            notifier.reap_finished();
+        }
+
+        assert!(notifier.workers.is_empty());
+        assert_eq!(spawner.calls().len(), 100);
+        notifier.shutdown();
     }
 }
