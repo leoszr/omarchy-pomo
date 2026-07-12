@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-12T00:00:00Z",
+  "title": "Design System: Omarchy Pomo",
+  "extensions": {
+    "colorMeta": {
+      "terminal-background": {
+        "role": "neutral",
+        "displayName": "Papel do Terminal",
+        "canonical": "#f2f2f2",
+        "tonalRamp": ["#111111", "#333333", "#555555", "#8a8a8a", "#b8b8b8", "#d4d4d4", "#e5e5e5", "#f2f2f2"]
+      },
+      "terminal-primary": {
+        "role": "primary",
+        "displayName": "Azul Corporate",
+        "canonical": "#005f87",
+        "tonalRamp": ["#00141d", "#002b3d", "#00435f", "#005f87", "#2680a5", "#64a4bf", "#a4ccdc", "#e5f3f8"]
+      },
+      "terminal-break": {
+        "role": "secondary",
+        "displayName": "Ameixa de Pausa",
+        "canonical": "#7a3f7a",
+        "tonalRamp": ["#1c0d1c", "#351a35", "#552b55", "#7a3f7a", "#9b639b", "#ba8dba", "#d9bcd9", "#f4e9f4"]
+      }
+    },
+    "typographyMeta": {
+      "timer": {
+        "displayName": "Cronômetro",
+        "purpose": "Tempo restante dominante, com largura visual estável."
+      },
+      "body": {
+        "displayName": "Interface",
+        "purpose": "Rótulos, histórico, mensagens e ações."
+      }
+    },
+    "shadows": [],
+    "motion": [],
+    "breakpoints": [
+      { "name": "terminal-minimum", "value": "32x10 cells" },
+      { "name": "terminal-compact", "value": "52x16 cells" },
+      { "name": "terminal-wide", "value": "85x24 cells" }
+    ]
+  },
+  "components": [],
+  "narrative": {
+    "northStar": "O mostrador que pertence ao desktop",
+    "overview": "Omarchy Pomo parece uma extensão natural do terminal. O fundo, a fonte e a identidade cromática vêm do tema ativo do Omarchy; o cronômetro é o centro óptico e o restante permanece silencioso.",
+    "keyCharacteristics": [
+      "Cronômetro grande, central e legível à primeira vista.",
+      "Paleta adaptativa baseada nas cores ANSI do terminal.",
+      "Uma moldura, poucos separadores e amplo espaço vazio.",
+      "Ações contextuais, mostrando primeiro o que pode ser feito agora.",
+      "Três layouts por capacidade: compacto, padrão e amplo."
+    ],
+    "rules": [
+      { "name": "Native Theme Rule", "body": "Nunca definir fundo RGB na TUI; preservar a superfície e os slots ANSI do terminal.", "section": "colors" },
+      { "name": "One Glance Rule", "body": "Tempo restante, estado e ação principal devem ser compreendidos sem percorrer a tela inteira.", "section": "typography" },
+      { "name": "Single Frame Rule", "body": "Uma única moldura contém a experiência; não usar cartões independentes.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do herdar fundo e foreground do terminal com Color::Reset.",
+      "Do usar os slots ANSI para acompanhar automaticamente o tema do Omarchy.",
+      "Do manter o cronômetro como elemento dominante em todos os layouts."
+    ],
+    "donts": [
+      "Don't criar interfaces gamificadas, com celebrações, pontuações ou estímulos constantes.",
+      "Don't criar dashboards cheios de cartões e métricas secundárias.",
+      "Don't usar estética de terminal técnico denso, com informação operacional desnecessária.",
+      "Don't usar decoração neon, gradientes, bordas excessivas ou cor sem função."
+    ]
+  }
+}
