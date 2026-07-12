@@ -9,19 +9,21 @@ frame JSON UTF-8 delimitado por newline (`JSON + \n`):
 {"command":"status"}
 ```
 
-O conteúdo JSON das requests/responses permanece o mesmo da Sprint 4; apenas
-o delimitador foi adicionado para que o daemon não dependa de EOF. O cliente
-envia uma request, lê uma response e a conexão é encerrada pelo daemon.
+O conteúdo JSON das requests/responses permanece o mesmo da Sprint 4. O
+newline é o framing preferido; EOF após payload não vazio também é aceito para
+compatibilidade com clientes antigos. O cliente atual envia newline e EOF,
+permitindo upgrade cruzado com daemon antigo. A conexão é encerrada pelo
+daemon depois da response.
 
 Limites e timeouts explícitos:
 
 - máximo de 65.536 bytes por request e por response, sem contar `\n`;
-- timeout de leitura: 2 segundos;
-- timeout de escrita: 2 segundos.
+- timeout de leitura/escrita do daemon: 250 ms;
+- timeout de leitura/escrita do cliente: 2 segundos.
 
 O daemon responde `{"type":"error","message":"..."}` para payload vazio,
-EOF prematuro, frame sem newline, payload excessivo e JSON inválido. Timeout
-ou falha de I/O também inclui a operação afetada na mensagem.
+payload excessivo e JSON inválido. EOF vazio e timeout também incluem a
+operação afetada na mensagem; EOF com payload não vazio é o frame legado.
 
 ## Concorrência e recursos
 

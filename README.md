@@ -59,12 +59,14 @@ Se o daemon não estiver rodando, a CLI retorna erro amigável pedindo `omarchy-
 
 ## Protocolo IPC e disponibilidade
 
-O socket Unix usa um frame por conexão: um objeto JSON UTF-8 seguido por `\n`. A
-response usa o mesmo framing. O cliente não precisa fechar o lado de escrita;
-EOF antes do `\n` é reportado como erro.
+O socket Unix usa um frame por conexão: um objeto JSON UTF-8 seguido por `\n`.
+O cliente atual também sinaliza EOF depois do frame para interoperar com
+daemons antigos; payload não vazio terminado por EOF é aceito como frame
+legado. Payload vazio/EOF sem conteúdo continua sendo erro.
 
 - request e response têm limite de 64 KiB, sem contar o `\n`;
-- leitura e escrita têm timeout de 2 segundos;
+- o cliente tem timeout de leitura/escrita de 2 segundos; o daemon usa 250 ms
+  para leitura e escrita, evitando que workers presos consumam toda a margem;
 - payload vazio, EOF prematuro, JSON inválido, excesso de tamanho e timeout
   retornam `type: "error"` com mensagem específica;
 - o daemon usa 4 workers fixos e fila limitada a 16 conexões. Quando cheia,
@@ -196,8 +198,8 @@ deduplicadas contra outra linha legada com a mesma chave completa (incluindo
 
 - `daemon indisponível`: inicie `omarchy-pomo daemon`.
 - `daemon já parece estar rodando`: já existe daemon ativo; não inicie outro.
-- `timeout lendo request IPC`: o cliente não enviou um frame completo em 2 segundos; envie JSON seguido de `\n`.
-- `request IPC vazio` ou `EOF antes do delimitador`: o cliente fechou sem enviar um frame completo.
+- `timeout lendo request IPC`: o cliente não enviou um frame completo em 250 ms; envie JSON seguido de `\n`.
+- `request IPC vazio`: o cliente fechou sem enviar um frame; EOF com JSON não vazio é aceito para compatibilidade.
 - `excede o limite de 65536 bytes`: reduza o payload; o limite vale para request e response.
 - `daemon ocupado`: a fila limitada atingiu a capacidade; tente novamente.
 - Waybar mostra erro: confirme se `omarchy-pomo` está no `PATH` da sessão gráfica.

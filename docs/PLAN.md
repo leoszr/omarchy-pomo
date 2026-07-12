@@ -59,11 +59,13 @@ O daemon deve expor um Unix Socket em:
 
 Clientes CLI/TUI/Waybar devem falar com o daemon usando mensagens JSON simples.
 
-No transporte, cada conexão carrega um único frame `JSON + newline`. Requests e
-responses são limitadas a 64 KiB e têm timeout de leitura/escrita de 2 segundos.
-O daemon atende com quatro workers fixos e fila limitada, rejeitando excesso
-com erro explícito. Isso evita que cliente sem EOF ou com escrita lenta bloqueie
-o accept loop ou cause crescimento ilimitado de workers.
+No transporte, cada conexão carrega um único frame `JSON + newline`; EOF após
+payload não vazio também é aceito para upgrade cruzado com clientes legados.
+Requests e responses são limitadas a 64 KiB. O cliente usa timeout de 2
+segundos e o daemon timeout de 250 ms. O daemon atende com quatro workers
+fixos e fila limitada, rejeitando excesso com erro explícito. Isso evita que
+cliente sem framing ou com escrita lenta bloqueie o accept loop ou cause
+crescimento ilimitado de workers.
 
 Exemplo de request:
 

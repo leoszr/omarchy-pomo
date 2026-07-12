@@ -406,8 +406,8 @@ Status: concluída no ciclo `sprint/03-ipc`.
 
 ### Entrega
 
-- framing newline-delimited JSON independente de EOF;
-- limites de 64 KiB e timeouts de leitura/escrita de 2 segundos;
+- framing newline-delimited JSON com compatibilidade legada por EOF;
+- limites de 64 KiB, timeout do daemon de 250 ms e timeout do cliente de 2 segundos;
 - erros explícitos para EOF, payload vazio/excessivo, JSON inválido e timeout;
 - quatro workers fixos com fila limitada a 16 conexões;
 - testes de cliente preso, concorrência, payload excessivo e recuperação do daemon.

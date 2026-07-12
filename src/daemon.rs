@@ -131,6 +131,7 @@ fn run_loop_internal(
 pub fn handle_request(paths: &StatePaths, request: IpcRequest) -> anyhow::Result<IpcResponse> {
     let mut notifier = ExternalNotifier;
     handle_request_at_with_notifier(paths, request, chrono::Local::now(), &mut notifier)
+
 }
 
 fn handle_request_at_with_notifier(
@@ -177,7 +178,7 @@ fn handle_stream(
     paths: &StatePaths,
     request_lock: &Mutex<()>,
 ) -> anyhow::Result<()> {
-    ipc::configure_timeouts(&stream)?;
+    ipc::configure_server_timeouts(&stream)?;
     let response = match ipc::read_frame(&mut stream, ipc::MAX_REQUEST_BYTES, "request IPC") {
         Ok(raw) => match serde_json::from_slice::<IpcRequest>(&raw) {
             Ok(request) => {
@@ -203,7 +204,7 @@ fn reject_connection(mut stream: UnixStream) {
     let response = IpcResponse::Error {
         message: "daemon ocupado: limite de conexões atingido; tente novamente".to_string(),
     };
-    let _ = ipc::configure_timeouts(&stream);
+    let _ = ipc::configure_server_timeouts(&stream);
     if let Err(error) = write_response(&mut stream, &response) {
         eprintln!("Erro ao rejeitar conexão IPC: {error:#}");
     }
@@ -770,4 +771,5 @@ mod tests {
 
         assert!(!paths.socket_file.exists());
     }
+
 }

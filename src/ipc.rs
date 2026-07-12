@@ -16,8 +16,10 @@ use crate::{
 /// Limite do payload JSON, sem contar o byte de framing (`\n`).
 pub(crate) const MAX_REQUEST_BYTES: usize = 64 * 1024;
 pub(crate) const MAX_RESPONSE_BYTES: usize = 64 * 1024;
-pub(crate) const IPC_READ_TIMEOUT: Duration = Duration::from_secs(2);
-pub(crate) const IPC_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+pub(crate) const IPC_CLIENT_READ_TIMEOUT: Duration = Duration::from_secs(2);
+pub(crate) const IPC_CLIENT_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+pub(crate) const IPC_SERVER_READ_TIMEOUT: Duration = Duration::from_millis(250);
+pub(crate) const IPC_SERVER_WRITE_TIMEOUT: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
@@ -45,23 +47,37 @@ pub fn request(paths: &StatePaths, request: &IpcRequest) -> anyhow::Result<IpcRe
             paths.socket_file.display()
         )
     })?;
-    configure_timeouts(&stream)?;
+    configure_client_timeouts(&stream)?;
 
     let raw = serde_json::to_vec(request).context("falha ao serializar request IPC")?;
     write_frame(&mut stream, &raw, MAX_REQUEST_BYTES, "request IPC")
         .context("falha ao enviar request IPC")?;
+    // EOF mantém compatibilidade com daemons antigos que usam read_to_string.
+    stream
+        .shutdown(std::net::Shutdown::Write)
+        .context("falha ao finalizar escrita IPC")?;
 
     let response = read_frame(&mut stream, MAX_RESPONSE_BYTES, "response IPC")
         .context("falha ao ler response IPC")?;
     serde_json::from_slice(&response).context("falha ao interpretar response IPC")
 }
 
-pub(crate) fn configure_timeouts(stream: &UnixStream) -> anyhow::Result<()> {
+pub(crate) fn configure_client_timeouts(stream: &UnixStream) -> anyhow::Result<()> {
     stream
-        .set_read_timeout(Some(IPC_READ_TIMEOUT))
+        .set_read_timeout(Some(IPC_CLIENT_READ_TIMEOUT))
         .context("falha ao configurar timeout de leitura IPC")?;
     stream
-        .set_write_timeout(Some(IPC_WRITE_TIMEOUT))
+        .set_write_timeout(Some(IPC_CLIENT_WRITE_TIMEOUT))
+        .context("falha ao configurar timeout de escrita IPC")?;
+    Ok(())
+}
+
+pub(crate) fn configure_server_timeouts(stream: &UnixStream) -> anyhow::Result<()> {
+    stream
+        .set_read_timeout(Some(IPC_SERVER_READ_TIMEOUT))
+        .context("falha ao configurar timeout de leitura IPC")?;
+    stream
+        .set_write_timeout(Some(IPC_SERVER_WRITE_TIMEOUT))
         .context("falha ao configurar timeout de escrita IPC")?;
     Ok(())
 }
@@ -72,7 +88,7 @@ pub(crate) fn read_frame(
     max_bytes: usize,
     name: &str,
 ) -> anyhow::Result<Vec<u8>> {
-    let mut payload = Vec::with_capacity(max_bytes.min(4096));
+    let mut payload: Vec<u8> = Vec::with_capacity(max_bytes.min(4096));
     let mut buffer = [0_u8; 4096];
 
     loop {
@@ -84,16 +100,17 @@ pub(crate) fn read_frame(
                     std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
                 ) =>
             {
-                bail!("timeout lendo {name} após {}s", IPC_READ_TIMEOUT.as_secs())
+                bail!("timeout lendo {name}")
             }
             Err(error) => return Err(error).with_context(|| format!("falha ao ler {name}")),
         };
 
         if bytes_read == 0 {
-            if payload.is_empty() {
+            if payload.is_empty() || payload.iter().all(|byte| byte.is_ascii_whitespace()) {
                 bail!("{name} vazio (EOF)");
             }
-            bail!("EOF antes do delimitador newline em {name}");
+            // Compatibilidade com clientes/daemons antigos que delimitam por EOF.
+            return Ok(payload);
         }
 
         for &byte in &buffer[..bytes_read] {
@@ -132,7 +149,12 @@ pub(crate) fn write_frame(
 mod tests {
     use super::*;
     use crate::cli::CustomSessionType;
-    use std::{io::Write, os::unix::net::UnixStream, time::Duration};
+    use std::{
+        io::{Read, Write},
+        os::unix::net::{UnixListener, UnixStream},
+        thread,
+        time::Duration,
+    };
 
     #[test]
     fn serializa_request_start() {
@@ -188,10 +210,8 @@ mod tests {
         let (mut server, mut client) = UnixStream::pair().unwrap();
         client.write_all(b"{}").unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
-        let error = read_frame(&mut server, MAX_REQUEST_BYTES, "request IPC")
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("EOF antes"));
+        let frame = read_frame(&mut server, MAX_REQUEST_BYTES, "request IPC").unwrap();
+        assert_eq!(frame, b"{}");
 
         let (mut server, mut client) = UnixStream::pair().unwrap();
         client
@@ -214,5 +234,29 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("timeout lendo request IPC"));
+    }
+
+    #[test]
+    fn cliente_novo_conversa_com_daemon_antigo_sem_newline_na_response() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = StatePaths::from_base(dir.path().join("omarchy-pomo"));
+        paths.ensure_base_dir().unwrap();
+        let listener = UnixListener::bind(&paths.socket_file).unwrap();
+        let thread = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            stream.read_to_string(&mut request).unwrap();
+            assert!(request.ends_with('\n'));
+            let response = IpcResponse::State {
+                state: TimerState::idle(),
+            };
+            stream
+                .write_all(&serde_json::to_vec(&response).unwrap())
+                .unwrap();
+        });
+
+        let response = request(&paths, &IpcRequest::Status).unwrap();
+        thread.join().unwrap();
+        assert!(matches!(response, IpcResponse::State { .. }));
     }
 }
