@@ -13,6 +13,16 @@ pub struct TuiApp {
     pub error: Option<String>,
     pub should_quit: bool,
     pub custom_input: Option<CustomInput>,
+    status_error: Option<String>,
+    history_error: Option<String>,
+    action_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) enum ErrorSource {
+    Status,
+    History,
+    Action,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -23,19 +33,71 @@ pub struct CustomInput {
 
 impl TuiApp {
     pub fn apply_response(&mut self, response: IpcResponse) {
+        self.apply_response_from(ErrorSource::Action, response);
+    }
+
+    pub(super) fn apply_response_from(&mut self, source: ErrorSource, response: IpcResponse) {
         match response {
-            IpcResponse::State { state } => self.state = Some(state),
-            IpcResponse::History { summary } => self.summary = Some(summary),
-            IpcResponse::Error { message } => self.error = Some(message),
+            IpcResponse::State { state } => {
+                self.state = Some(state);
+                self.clear_error_source(source);
+            }
+            IpcResponse::History { summary } => {
+                self.summary = Some(summary);
+                self.clear_error_source(source);
+            }
+            IpcResponse::Error { message } => self.set_error_source(source, message),
         }
     }
 
     pub fn set_error(&mut self, error: impl Into<String>) {
-        self.error = Some(error.into());
+        self.set_error_source(ErrorSource::Action, error);
     }
 
-    pub fn clear_error(&mut self) {
-        self.error = None;
+    pub(super) fn set_error_source(&mut self, source: ErrorSource, error: impl Into<String>) {
+        let error = Some(error.into());
+        match source {
+            ErrorSource::Status => self.status_error = error,
+            ErrorSource::History => self.history_error = error,
+            ErrorSource::Action => self.action_error = error,
+        }
+        self.refresh_error();
+    }
+
+    fn clear_error_source(&mut self, source: ErrorSource) {
+        match source {
+            ErrorSource::Status => self.status_error = None,
+            ErrorSource::History => self.history_error = None,
+            ErrorSource::Action => self.action_error = None,
+        }
+        self.refresh_error();
+    }
+
+    fn refresh_error(&mut self) {
+        let errors = [
+            self.action_error
+                .as_deref()
+                .map(|error| format!("ação: {error}")),
+            self.status_error
+                .as_deref()
+                .map(|error| format!("status: {error}")),
+            self.history_error
+                .as_deref()
+                .map(|error| format!("histórico: {error}")),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+
+        self.error = match errors.as_slice() {
+            [] => None,
+            [error] => Some(
+                error
+                    .split_once(": ")
+                    .map_or_else(|| error.clone(), |(_, message)| message.to_string()),
+            ),
+            _ => Some(errors.join(" | ")),
+        };
     }
 
     pub fn remaining_secs(&self) -> u64 {
@@ -57,7 +119,7 @@ impl TuiApp {
     }
 
     pub fn begin_custom_input(&mut self) {
-        self.error = None;
+        self.clear_error_source(ErrorSource::Action);
         self.custom_input = Some(CustomInput::default());
     }
 
@@ -83,7 +145,7 @@ impl TuiApp {
 
     pub fn cancel_custom_input(&mut self) {
         self.custom_input = None;
-        self.error = None;
+        self.clear_error_source(ErrorSource::Action);
     }
 
     pub fn custom_start_args(&self) -> Result<StartArgs, String> {
@@ -145,12 +207,28 @@ mod tests {
     #[test]
     fn resposta_bem_sucedida_nao_apaga_erro_do_mesmo_ciclo() {
         let mut app = TuiApp::default();
-        app.set_error("histórico indisponível");
-        app.apply_response(IpcResponse::State {
-            state: crate::state::TimerState::idle(),
-        });
+        app.apply_response_from(
+            ErrorSource::History,
+            IpcResponse::Error {
+                message: "histórico indisponível".to_string(),
+            },
+        );
+        app.apply_response_from(
+            ErrorSource::Status,
+            IpcResponse::State {
+                state: crate::state::TimerState::idle(),
+            },
+        );
 
         assert_eq!(app.error.as_deref(), Some("histórico indisponível"));
+
+        app.apply_response_from(
+            ErrorSource::History,
+            IpcResponse::History {
+                summary: DailySummary::default(),
+            },
+        );
+        assert!(app.error.is_none());
     }
 
     #[test]

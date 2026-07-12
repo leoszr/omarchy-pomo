@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use crossterm::event::{self, Event, KeyEventKind};
 
 use crate::{ipc, state::StatePaths};
-use app::TuiApp;
+use app::{ErrorSource, TuiApp};
 use events::TuiAction;
 
 const VISUAL_FRAME_INTERVAL: Duration = Duration::from_millis(100);
@@ -62,10 +62,6 @@ fn run_app(terminal: &mut ratatui::DefaultTerminal, paths: &StatePaths) -> anyho
         if app.custom_input.is_none() {
             let status_due = schedule.status_due(now);
             let history_due = schedule.history_due(now);
-            if status_due || history_due {
-                // Uma falha sobrevive às respostas bem-sucedidas da mesma rodada.
-                app.clear_error();
-            }
             let mut history_refreshed = false;
             if status_due {
                 let completed = refresh_status(&mut app, paths);
@@ -127,10 +123,9 @@ fn handle_action(app: &mut TuiApp, paths: &StatePaths, action: TuiAction) {
 }
 
 fn send_request(app: &mut TuiApp, paths: &StatePaths, request: &ipc::IpcRequest) {
-    app.clear_error();
     match ipc::request(paths, request) {
         Ok(response) => app.apply_response(response),
-        Err(error) => app.set_error(format!("{error:#}")),
+        Err(error) => app.set_error_source(ErrorSource::Action, format!("{error:#}")),
     }
 }
 
@@ -142,22 +137,22 @@ fn refresh_status(app: &mut TuiApp, paths: &StatePaths) -> bool {
     let mut completed = false;
     match ipc::request(paths, &ipc::IpcRequest::Status) {
         Ok(response) => {
-            app.apply_response(response);
+            app.apply_response_from(ErrorSource::Status, response);
             completed = !was_finished
                 && app
                     .state
                     .as_ref()
                     .is_some_and(|state| state.status == crate::state::TimerStatus::Finished);
         }
-        Err(error) => app.set_error(format!("{error:#}")),
+        Err(error) => app.set_error_source(ErrorSource::Status, format!("{error:#}")),
     }
     completed
 }
 
 fn refresh_history(app: &mut TuiApp, paths: &StatePaths) {
     match ipc::request(paths, &ipc::IpcRequest::History) {
-        Ok(response) => app.apply_response(response),
-        Err(error) => app.set_error(format!("{error:#}")),
+        Ok(response) => app.apply_response_from(ErrorSource::History, response),
+        Err(error) => app.set_error_source(ErrorSource::History, format!("{error:#}")),
     }
 }
 

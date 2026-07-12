@@ -213,11 +213,20 @@ pub fn write_state_if_changed(
     previous: &TimerState,
     next: &TimerState,
 ) -> anyhow::Result<bool> {
+    write_state_if_changed_with(paths, previous, next, write_state)
+}
+
+fn write_state_if_changed_with(
+    paths: &StatePaths,
+    previous: &TimerState,
+    next: &TimerState,
+    writer: impl FnOnce(&StatePaths, &TimerState) -> anyhow::Result<()>,
+) -> anyhow::Result<bool> {
     if previous == next {
         return Ok(false);
     }
 
-    write_state(paths, next)?;
+    writer(paths, next)?;
     Ok(true)
 }
 
@@ -276,7 +285,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let paths = StatePaths::from_base(dir.path().join("omarchy-pomo"));
         let state = running_state();
+        let writes = std::cell::Cell::new(0);
 
+<<<<<<< HEAD
         write_state(&paths, &state).unwrap();
 
         let names = fs::read_dir(&paths.base_dir)
@@ -340,6 +351,16 @@ mod tests {
 
         assert!(!write_state_if_changed(&paths, &state, &state).unwrap());
         assert!(!paths.state_file.exists());
+=======
+        assert!(
+            !write_state_if_changed_with(&paths, &state, &state, |_, _| {
+                writes.set(writes.get() + 1);
+                Ok(())
+            })
+            .unwrap()
+        );
+        assert_eq!(writes.get(), 0);
+>>>>>>> d2be24f (fix: keep tui errors scoped to refresh sources)
     }
 
     #[test]
