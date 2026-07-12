@@ -57,6 +57,23 @@ o limite é aplicado tanto pela CLI quanto pelo domínio/IPC.
 
 Se o daemon não estiver rodando, a CLI retorna erro amigável pedindo `omarchy-pomo daemon`. Para `status --waybar`, a saída continua sendo JSON válido com classe `error`.
 
+## Protocolo IPC e disponibilidade
+
+O socket Unix usa um frame por conexão: um objeto JSON UTF-8 seguido por `\n`. A
+response usa o mesmo framing. O cliente não precisa fechar o lado de escrita;
+EOF antes do `\n` é reportado como erro.
+
+- request e response têm limite de 64 KiB, sem contar o `\n`;
+- leitura e escrita têm timeout de 2 segundos;
+- payload vazio, EOF prematuro, JSON inválido, excesso de tamanho e timeout
+  retornam `type: "error"` com mensagem específica;
+- o daemon usa 4 workers fixos e fila limitada a 16 conexões. Quando cheia,
+  novas conexões recebem erro de sobrecarga em vez de consumir recursos sem
+  limite.
+
+Um cliente Unix Socket que conecta e não envia request não impede outros
+clientes: o worker dedicado expira após o timeout.
+
 ## TUI
 
 Com o daemon rodando:
@@ -179,6 +196,10 @@ deduplicadas contra outra linha legada com a mesma chave completa (incluindo
 
 - `daemon indisponível`: inicie `omarchy-pomo daemon`.
 - `daemon já parece estar rodando`: já existe daemon ativo; não inicie outro.
+- `timeout lendo request IPC`: o cliente não enviou um frame completo em 2 segundos; envie JSON seguido de `\n`.
+- `request IPC vazio` ou `EOF antes do delimitador`: o cliente fechou sem enviar um frame completo.
+- `excede o limite de 65536 bytes`: reduza o payload; o limite vale para request e response.
+- `daemon ocupado`: a fila limitada atingiu a capacidade; tente novamente.
 - Waybar mostra erro: confirme se `omarchy-pomo` está no `PATH` da sessão gráfica.
 - Sem som: instale `paplay` ou `mpv` e crie `~/.config/omarchy-pomo/done.ogg`.
 - Sem notificação: instale/configure `notify-send` e daemon de notificações.

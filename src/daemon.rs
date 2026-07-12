@@ -1,6 +1,5 @@
 use std::{
     fs,
-    io::{Read, Write},
     os::unix::net::{UnixListener, UnixStream},
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -15,7 +14,7 @@ use anyhow::Context;
 
 use crate::{
     history,
-    ipc::{IpcRequest, IpcResponse},
+    ipc::{self, IpcRequest, IpcResponse},
     notify::{CompletionNotifier, ExternalNotifier},
     state::{self, StatePaths, TimerState, TimerStatus},
     timer,
@@ -78,7 +77,7 @@ fn run_loop_internal(
                 Ok((stream, _)) => {
                     if !try_acquire_worker(&active_workers) {
                         eprintln!("Limite de workers IPC atingido; conexão rejeitada");
-                        drop(stream);
+                        reject_connection(stream);
                         continue;
                     }
 
@@ -178,27 +177,57 @@ fn handle_stream(
     paths: &StatePaths,
     request_lock: &Mutex<()>,
 ) -> anyhow::Result<()> {
-    let mut raw = String::new();
-    stream
-        .read_to_string(&mut raw)
-        .context("falha ao ler request IPC")?;
-    let response = match serde_json::from_str::<IpcRequest>(&raw) {
-        Ok(request) => {
-            let _guard = request_lock
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            handle_request(paths, request).unwrap_or_else(|error| IpcResponse::Error {
-                message: format!("{error:#}"),
-            })
-        }
+    ipc::configure_timeouts(&stream)?;
+    let response = match ipc::read_frame(&mut stream, ipc::MAX_REQUEST_BYTES, "request IPC") {
+        Ok(raw) => match serde_json::from_slice::<IpcRequest>(&raw) {
+            Ok(request) => {
+                let _guard = request_lock
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                handle_request(paths, request).unwrap_or_else(|error| IpcResponse::Error {
+                    message: format!("{error:#}"),
+                })
+            }
+            Err(error) => IpcResponse::Error {
+                message: format!("request IPC inválido: {error:#}"),
+            },
+        },
         Err(error) => IpcResponse::Error {
-            message: format!("request IPC inválido: {error:#}"),
+            message: format!("request IPC rejeitado: {error:#}"),
         },
     };
-    let raw_response = serde_json::to_vec(&response).context("falha ao serializar response IPC")?;
-    stream
-        .write_all(&raw_response)
-        .context("falha ao enviar response IPC")
+    write_response(&mut stream, &response)
+}
+
+fn reject_connection(mut stream: UnixStream) {
+    let response = IpcResponse::Error {
+        message: "daemon ocupado: limite de conexões atingido; tente novamente".to_string(),
+    };
+    let _ = ipc::configure_timeouts(&stream);
+    if let Err(error) = write_response(&mut stream, &response) {
+        eprintln!("Erro ao rejeitar conexão IPC: {error:#}");
+    }
+}
+
+fn write_response(stream: &mut UnixStream, response: &IpcResponse) -> anyhow::Result<()> {
+    let raw = serde_json::to_vec(response).context("falha ao serializar response IPC")?;
+    if raw.len() <= ipc::MAX_RESPONSE_BYTES {
+        return ipc::write_frame(stream, &raw, ipc::MAX_RESPONSE_BYTES, "response IPC");
+    }
+
+    let fallback = IpcResponse::Error {
+        message: format!(
+            "response IPC excede o limite de {} bytes",
+            ipc::MAX_RESPONSE_BYTES
+        ),
+    };
+    let fallback_raw = serde_json::to_vec(&fallback).context("falha ao serializar erro IPC")?;
+    ipc::write_frame(
+        stream,
+        &fallback_raw,
+        ipc::MAX_RESPONSE_BYTES,
+        "response IPC",
+    )
 }
 
 fn update_state(

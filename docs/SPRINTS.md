@@ -399,3 +399,17 @@ Fechar MVP com revisão de qualidade, docs completas e build release.
 - `README.md`: versão MVP final.
 - `docs/PLAN.md`: status final e próximos passos.
 - `docs/SPRINTS.md`: marcar sprints concluídas ou pendências.
+
+## Sprint 10 — Hardening do IPC e disponibilidade do daemon
+
+Status: concluída no ciclo `sprint/03-ipc`.
+
+### Entrega
+
+- framing newline-delimited JSON independente de EOF;
+- limites de 64 KiB e timeouts de leitura/escrita de 2 segundos;
+- erros explícitos para EOF, payload vazio/excessivo, JSON inválido e timeout;
+- quatro workers fixos com fila limitada a 16 conexões;
+- testes de cliente preso, concorrência, payload excessivo e recuperação do daemon.
+
+Protocolo detalhado: [`docs/7-task-daemon-unix-socket.md`](7-task-daemon-unix-socket.md).

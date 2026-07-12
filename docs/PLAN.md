@@ -6,7 +6,7 @@ Criar um aplicativo Pomodoro em Rust para Omarchy/Hyprland que funcione como uti
 
 Objetivo do MVP: entregar um Pomodoro simples, estável e integrado ao desktop Linux, sem ciclos automáticos complexos nem recursos de estatísticas avançadas.
 
-Estado do projeto: MVP concluído nas Sprints 1 a 9, com ciclo de vida autônomo e persistência durável. Implementado: base de domínio, caminhos locais, persistência crash-safe em `state.json`, lógica de timer por timestamp, histórico JSONL idempotente, daemon via Unix Socket com tick autônomo, CLI via IPC, JSON para Waybar, notificação/som opcional, TUI Ratatui com tempo customizado, exemplos Waybar/Hyprland, hardening do socket e build release verificado. O daemon é a fonte de verdade.
+Estado do projeto: MVP concluído nas Sprints 1 a 9, com ciclo de vida autônomo, persistência durável e IPC endurecido. Implementado: base de domínio, caminhos locais, persistência crash-safe em `state.json`, lógica de timer por timestamp, histórico JSONL idempotente, daemon via Unix Socket com tick autônomo, framing/limites/timeouts e concorrência limitada, CLI via IPC, JSON para Waybar, notificação/som opcional, TUI Ratatui com tempo customizado, exemplos Waybar/Hyprland e build release verificado. O daemon é a fonte de verdade.
 
 Fluxo desejado:
 
@@ -58,6 +58,12 @@ O daemon deve expor um Unix Socket em:
 ```
 
 Clientes CLI/TUI/Waybar devem falar com o daemon usando mensagens JSON simples.
+
+No transporte, cada conexão carrega um único frame `JSON + newline`. Requests e
+responses são limitadas a 64 KiB e têm timeout de leitura/escrita de 2 segundos.
+O daemon atende com quatro workers fixos e fila limitada, rejeitando excesso
+com erro explícito. Isso evita que cliente sem EOF ou com escrita lenta bloqueie
+o accept loop ou cause crescimento ilimitado de workers.
 
 Exemplo de request:
 
