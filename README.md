@@ -171,8 +171,9 @@ do marcador).
 
 Arquivos legados continuam válidos: campos novos ausentes recebem valores
 seguros; uma sessão legada ativa/concluída recebe uma identidade antes de tocar
-no histórico. Linhas antigas sem `session_id` continuam sendo lidas e usadas
-como ponte de migração.
+no histórico. Linhas antigas sem `session_id` continuam sendo lidas e só são
+deduplicadas contra outra linha legada com a mesma chave completa (incluindo
+`finished_at`); nunca são confundidas com uma sessão nova identificada.
 
 ## Troubleshooting
 

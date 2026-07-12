@@ -685,7 +685,9 @@ mod tests {
 
         assert_eq!(state.status, TimerStatus::Finished);
         assert!(state.session_id.is_some());
-        assert_eq!(history::read_entries(&paths).unwrap().len(), 1);
+        // The old line is retained: its lack of identity makes it unsafe to
+        // assume that it is the just-finished session.
+        assert_eq!(history::read_entries(&paths).unwrap().len(), 2);
         assert_eq!(notifier.calls, 1);
     }
 

@@ -24,4 +24,7 @@ a sessão nem duplica sua entrada de histórico.
 
 `session_id` em `HistoryEntry` também é opcional na desserialização: linhas
 legadas continuam válidas. Para arquivos legados sem os novos campos, a leitura
-gera a identidade e a persistência do estado acontece antes do histórico.
+gera a identidade e a persistência do estado acontece antes do histórico. Uma
+linha sem identidade só deduplica outra linha legada com a chave completa,
+incluindo `finished_at`; ela nunca é usada para descartar uma sessão nova com
+`session_id`, pois presets iguais podem representar sessões distintas.

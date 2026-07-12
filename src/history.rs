@@ -138,11 +138,10 @@ fn same_session(left: &HistoryEntry, right: &HistoryEntry) -> bool {
     match (left.session_id.as_deref(), right.session_id.as_deref()) {
         (Some(left_id), Some(right_id)) => left_id == right_id,
         (None, None) => legacy_key(left) == legacy_key(right),
-        // A migrated state has an ID but an old history line does not.  The
-        // old format has no finish identity, so use its remaining fields as a
-        // compatibility bridge without collapsing ordinary legacy sessions
-        // that have different timestamps.
-        _ => legacy_compatible(left, right),
+        // There is no safe identity bridge between formats.  Matching on
+        // date/type/label/duration would discard a legitimate new session
+        // after an older session with the same preset.
+        _ => false,
     }
 }
 
@@ -168,13 +167,6 @@ fn legacy_key(entry: &HistoryEntry) -> String {
         entry.duration_secs,
         entry.finished_at
     )
-}
-
-fn legacy_compatible(left: &HistoryEntry, right: &HistoryEntry) -> bool {
-    left.date == right.date
-        && left.session_type == right.session_type
-        && left.label == right.label
-        && left.duration_secs == right.duration_secs
 }
 
 #[cfg(test)]
@@ -292,5 +284,26 @@ mod tests {
         assert!(append_entry_if_absent(&paths, &entry).unwrap());
         assert!(!append_entry_if_absent(&paths, &entry).unwrap());
         assert_eq!(read_entries(&paths).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn sessao_nova_nao_colide_com_legada_do_mesmo_preset() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = StatePaths::from_base(dir.path().join("omarchy-pomo"));
+        let now = Local::now();
+        let legacy = HistoryEntry {
+            finished_at: now - chrono::Duration::hours(1),
+            ..entry(HistorySessionType::Focus, now.date_naive(), 1_500)
+        };
+        let current = HistoryEntry {
+            session_id: Some("new-session".to_string()),
+            finished_at: now,
+            ..legacy.clone()
+        };
+
+        append_entry(&paths, &legacy).unwrap();
+        assert!(append_entry_if_absent(&paths, &current).unwrap());
+
+        assert_eq!(read_entries(&paths).unwrap().len(), 2);
     }
 }
