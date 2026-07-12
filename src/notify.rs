@@ -74,7 +74,8 @@ impl ExternalNotifier {
         }
     }
 
-    pub fn shutdown(mut self) {
+    #[cfg(test)]
+    fn shutdown(mut self) {
         self.join_workers();
     }
 
@@ -231,6 +232,9 @@ mod tests {
             duration_secs: 1_500,
             started_at: None,
             paused_remaining_secs: Some(0),
+            session_id: Some("session-test".to_string()),
+            history_recorded: true,
+            notification_sent: true,
         }
     }
 

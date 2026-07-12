@@ -43,7 +43,7 @@ fn run_loop_internal(
     stop: Option<Arc<AtomicBool>>,
     accepted_tx: Option<Sender<()>>,
 ) -> anyhow::Result<()> {
-    let mut notifier = ExternalNotifier;
+    let notifier = Arc::new(Mutex::new(ExternalNotifier::default()));
     let request_lock = Arc::new(Mutex::new(()));
     let active_workers = Arc::new(AtomicUsize::new(0));
 
@@ -57,11 +57,19 @@ fn run_loop_internal(
 
         let now = chrono::Local::now();
         let tick_result = match request_lock.lock() {
-            Ok(_guard) => tick_with_notifier(&paths, now, &mut notifier),
+            Ok(_guard) => {
+                let mut notifier = notifier
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                tick_with_notifier(&paths, now, &mut *notifier)
+            }
             Err(poisoned) => {
                 eprintln!("Lock IPC envenenado; continuando com o estado recuperado");
                 let _guard = poisoned.into_inner();
-                tick_with_notifier(&paths, now, &mut notifier)
+                let mut notifier = notifier
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                tick_with_notifier(&paths, now, &mut *notifier)
             }
         };
         let current = match tick_result {
@@ -83,6 +91,7 @@ fn run_loop_internal(
 
                     let paths = paths.clone();
                     let request_lock = Arc::clone(&request_lock);
+                    let notifier = Arc::clone(&notifier);
                     let active_workers = Arc::clone(&active_workers);
                     if let Err(error) = stream
                         .set_read_timeout(Some(IPC_IO_TIMEOUT))
@@ -98,7 +107,9 @@ fn run_loop_internal(
                         thread::Builder::new()
                             .name("pomo-ipc".to_string())
                             .spawn(move || {
-                                if let Err(error) = handle_stream(stream, &paths, &request_lock) {
+                                if let Err(error) =
+                                    handle_stream(stream, &paths, &request_lock, &notifier)
+                                {
                                     eprintln!("Erro IPC: {error:#}");
                                 }
                                 worker_active_workers.fetch_sub(1, Ordering::Release);
@@ -128,8 +139,9 @@ fn run_loop_internal(
     Ok(())
 }
 
-pub fn handle_request(paths: &StatePaths, request: IpcRequest) -> anyhow::Result<IpcResponse> {
-    let mut notifier = ExternalNotifier;
+#[cfg(test)]
+fn handle_request(paths: &StatePaths, request: IpcRequest) -> anyhow::Result<IpcResponse> {
+    let mut notifier = ExternalNotifier::default();
     handle_request_at_with_notifier(paths, request, chrono::Local::now(), &mut notifier)
 }
 
@@ -176,6 +188,7 @@ fn handle_stream(
     mut stream: UnixStream,
     paths: &StatePaths,
     request_lock: &Mutex<()>,
+    notifier: &Mutex<ExternalNotifier>,
 ) -> anyhow::Result<()> {
     ipc::configure_server_timeouts(&stream)?;
     let response = match ipc::read_frame(&mut stream, ipc::MAX_REQUEST_BYTES, "request IPC") {
@@ -184,7 +197,16 @@ fn handle_stream(
                 let _guard = request_lock
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
-                handle_request(paths, request).unwrap_or_else(|error| IpcResponse::Error {
+                let mut notifier = notifier
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                handle_request_at_with_notifier(
+                    paths,
+                    request,
+                    chrono::Local::now(),
+                    &mut *notifier,
+                )
+                .unwrap_or_else(|error| IpcResponse::Error {
                     message: format!("{error:#}"),
                 })
             }
