@@ -285,9 +285,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let paths = StatePaths::from_base(dir.path().join("omarchy-pomo"));
         let state = running_state();
-        let writes = std::cell::Cell::new(0);
 
-<<<<<<< HEAD
         write_state(&paths, &state).unwrap();
 
         let names = fs::read_dir(&paths.base_dir)
@@ -348,10 +346,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let paths = StatePaths::from_base(dir.path().join("omarchy-pomo"));
         let state = running_state();
+        let writes = std::cell::Cell::new(0);
 
-        assert!(!write_state_if_changed(&paths, &state, &state).unwrap());
-        assert!(!paths.state_file.exists());
-=======
         assert!(
             !write_state_if_changed_with(&paths, &state, &state, |_, _| {
                 writes.set(writes.get() + 1);
@@ -360,7 +356,6 @@ mod tests {
             .unwrap()
         );
         assert_eq!(writes.get(), 0);
->>>>>>> d2be24f (fix: keep tui errors scoped to refresh sources)
     }
 
     #[test]
