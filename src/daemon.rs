@@ -2,6 +2,11 @@ use std::{
     fs,
     io::{Read, Write},
     os::unix::net::{UnixListener, UnixStream},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::Sender,
+        Arc, Mutex,
+    },
     thread,
     time::Duration,
 };
@@ -26,25 +31,72 @@ pub fn run(paths: StatePaths) -> anyhow::Result<()> {
         .context("falha ao configurar socket não bloqueante")?;
     println!("Daemon ouvindo em {}", paths.socket_file.display());
 
+    run_loop(paths, listener)
+}
+
+fn run_loop(paths: StatePaths, listener: UnixListener) -> anyhow::Result<()> {
+    run_loop_internal(paths, listener, None, None)
+}
+
+fn run_loop_internal(
+    paths: StatePaths,
+    listener: UnixListener,
+    stop: Option<Arc<AtomicBool>>,
+    accepted_tx: Option<Sender<()>>,
+) -> anyhow::Result<()> {
     let mut notifier = ExternalNotifier;
+    let request_lock = Arc::new(Mutex::new(()));
+
     loop {
+        if stop
+            .as_ref()
+            .is_some_and(|should_stop| should_stop.load(Ordering::Relaxed))
+        {
+            break;
+        }
+
         let now = chrono::Local::now();
-        let current = tick_with_notifier(&paths, now, &mut notifier)?;
+        let tick_result = match request_lock.lock() {
+            Ok(_guard) => tick_with_notifier(&paths, now, &mut notifier),
+            Err(poisoned) => {
+                eprintln!("Lock IPC envenenado; continuando com o estado recuperado");
+                let _guard = poisoned.into_inner();
+                tick_with_notifier(&paths, now, &mut notifier)
+            }
+        };
+        let current = match tick_result {
+            Ok(state) => Some(state),
+            Err(error) => {
+                eprintln!("Erro transitório no tick: {error:#}");
+                None
+            }
+        };
 
         loop {
             match listener.accept() {
                 Ok((stream, _)) => {
-                    if let Err(error) = handle_stream(stream, &paths) {
-                        eprintln!("Erro IPC: {error:#}");
-                    }
+                    let _ = accepted_tx.as_ref().map(|sender| sender.send(()));
+                    let paths = paths.clone();
+                    let request_lock = Arc::clone(&request_lock);
+                    thread::spawn(move || {
+                        if let Err(error) = handle_stream(stream, &paths, &request_lock) {
+                            eprintln!("Erro IPC: {error:#}");
+                        }
+                    });
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(error) => eprintln!("Erro ao aceitar conexão IPC: {error:#}"),
             }
         }
 
-        thread::sleep(next_tick_delay(&current, now));
+        let delay = current
+            .as_ref()
+            .map(|state| next_tick_delay(state, now))
+            .unwrap_or(ERROR_RETRY_INTERVAL);
+        thread::sleep(delay);
     }
+
+    Ok(())
 }
 
 pub fn handle_request(paths: &StatePaths, request: IpcRequest) -> anyhow::Result<IpcResponse> {
@@ -91,15 +143,24 @@ fn handle_request_at_with_notifier(
     }
 }
 
-fn handle_stream(mut stream: UnixStream, paths: &StatePaths) -> anyhow::Result<()> {
+fn handle_stream(
+    mut stream: UnixStream,
+    paths: &StatePaths,
+    request_lock: &Mutex<()>,
+) -> anyhow::Result<()> {
     let mut raw = String::new();
     stream
         .read_to_string(&mut raw)
         .context("falha ao ler request IPC")?;
     let response = match serde_json::from_str::<IpcRequest>(&raw) {
-        Ok(request) => handle_request(paths, request).unwrap_or_else(|error| IpcResponse::Error {
-            message: format!("{error:#}"),
-        }),
+        Ok(request) => {
+            let _guard = request_lock
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            handle_request(paths, request).unwrap_or_else(|error| IpcResponse::Error {
+                message: format!("{error:#}"),
+            })
+        }
         Err(error) => IpcResponse::Error {
             message: format!("request IPC inválido: {error:#}"),
         },
@@ -152,6 +213,7 @@ fn reconcile_finished_state_at(
 }
 
 const TICK_INTERVAL: Duration = Duration::from_millis(100);
+const ERROR_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 fn next_tick_delay(state: &TimerState, now: chrono::DateTime<chrono::Local>) -> Duration {
     let Some(due_at) = timer::due_at(state) else {
@@ -196,6 +258,7 @@ mod tests {
     };
     use chrono::Duration;
     use std::os::unix::net::UnixListener;
+    use std::time::{Duration as StdDuration, Instant};
 
     #[derive(Default)]
     struct MockNotifier {
@@ -244,6 +307,50 @@ mod tests {
         assert_eq!(state.status, TimerStatus::Finished);
         assert_eq!(notifier.calls, 1);
         assert_eq!(history::read_entries(&paths).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn cliente_preso_nao_impede_tick_do_loop() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = StatePaths::from_base(dir.path().join("omarchy-pomo"));
+        paths.ensure_base_dir().unwrap();
+        let listener = UnixListener::bind(&paths.socket_file).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let (accepted_tx, accepted_rx) = std::sync::mpsc::channel();
+        let loop_stop = Arc::clone(&stop);
+        let loop_paths = paths.clone();
+        let scheduler = thread::spawn(move || {
+            run_loop_internal(loop_paths, listener, Some(loop_stop), Some(accepted_tx))
+        });
+
+        let stuck_client = UnixStream::connect(&paths.socket_file).unwrap();
+        accepted_rx
+            .recv_timeout(StdDuration::from_secs(1))
+            .expect("daemon não aceitou o cliente preso");
+
+        let started_at = chrono::Local::now() - Duration::seconds(2);
+        let expired = timer::start_session(
+            SessionType::Focus,
+            "cliente preso".to_string(),
+            1,
+            started_at,
+        );
+        state::write_state(&paths, &expired).unwrap();
+
+        let deadline = Instant::now() + StdDuration::from_secs(2);
+        loop {
+            if state::read_state(&paths).unwrap().status == TimerStatus::Finished {
+                break;
+            }
+            assert!(Instant::now() < deadline, "tick não finalizou o timer");
+            thread::sleep(StdDuration::from_millis(10));
+        }
+
+        assert_eq!(history::read_entries(&paths).unwrap().len(), 1);
+        drop(stuck_client);
+        stop.store(true, Ordering::Relaxed);
+        scheduler.join().unwrap().unwrap();
     }
 
     #[test]

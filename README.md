@@ -44,6 +44,9 @@ omarchy-pomo tui
 
 O daemon finaliza sessões vencidas autonomamente em um tick interno de até
 100 ms; Waybar, TUI e CLI não precisam ser consultadas para registrar o fim.
+Leituras IPC ocorrem em workers separados, portanto um cliente que mantém a
+escrita aberta não bloqueia o scheduler. Erros transitórios do tick são
+registrados e tentados novamente com intervalo limitado.
 Ao executar `start` ou `stop`, uma sessão que venceu desde a última consulta é
 reconciliada antes da nova operação, incluindo histórico e notificação.
 

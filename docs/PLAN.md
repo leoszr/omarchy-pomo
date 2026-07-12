@@ -103,7 +103,10 @@ remaining = duration - (now - started_at)
 ```
 
 O daemon usa um loop não bloqueante com espera de até 100 ms para reconciliar
-uma sessão vencida mesmo sem clientes consultando o socket. A reconciliação
+uma sessão vencida mesmo sem clientes consultando o socket. A leitura de cada
+cliente IPC ocorre em worker separado, então uma conexão que não encerra a
+escrita não bloqueia o scheduler. Erros transitórios do tick são registrados e
+reprocessados com backoff limitado. A reconciliação
 também ocorre antes de `start` e `stop`; o histórico recebe o instante real do
 vencimento, inclusive quando ele cruza a meia-noite local. Durações
 customizadas são limitadas a 1.440 minutos e convertidas para segundos com
