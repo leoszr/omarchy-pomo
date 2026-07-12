@@ -112,7 +112,14 @@ Som opcional: crie o arquivo abaixo para tocar ao concluir:
 ~/.config/omarchy-pomo/done.ogg
 ```
 
-O daemon tenta `paplay` e depois `mpv --no-video`. Ausência de `notify-send`, `paplay`, `mpv` ou do arquivo de som não derruba o daemon.
+Notificação e áudio são disparados em workers de background: a resposta IPC não espera
+`notify-send`, `paplay` ou `mpv`. O worker de áudio espera o resultado de `paplay` antes
+de tentar `mpv --no-video`; portanto os dois players nunca são iniciados juntos.
+
+Tudo é best-effort. Ausência de `notify-send`, `paplay`, `mpv` ou do arquivo de som não
+derruba o daemon. Falhas de spawn, status de saída diferente de zero e falhas de espera
+são registradas no `stderr` do daemon. No encerramento normal do loop, o daemon espera
+os workers terminarem; cada processo filho é aguardado para evitar zombies.
 
 ## Waybar
 
@@ -205,6 +212,8 @@ deduplicadas contra outra linha legada com a mesma chave completa (incluindo
 - Waybar mostra erro: confirme se `omarchy-pomo` está no `PATH` da sessão gráfica.
 - Sem som: instale `paplay` ou `mpv` e crie `~/.config/omarchy-pomo/done.ogg`.
 - Sem notificação: instale/configure `notify-send` e daemon de notificações.
+- Diagnóstico: execute `omarchy-pomo daemon` em um terminal e observe o `stderr` para
+  falhas dos comandos externos.
 - Socket antigo/stale: o daemon remove socket morto ao iniciar; socket ativo não é removido.
 
 ## Desenvolvimento

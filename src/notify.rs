@@ -1,6 +1,9 @@
 use std::{
+    io,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Child, Command, ExitStatus},
+    sync::Arc,
+    thread::{self, JoinHandle},
 };
 
 use crate::state::TimerState;
@@ -11,25 +14,103 @@ pub struct CommandSpec {
     pub args: Vec<String>,
 }
 
+pub trait CommandProcess: Send {
+    fn wait(self: Box<Self>) -> io::Result<ExitStatus>;
+}
+
+pub trait CommandSpawner: Send + Sync {
+    fn spawn(&self, spec: &CommandSpec) -> io::Result<Box<dyn CommandProcess>>;
+}
+
+#[derive(Debug, Default)]
+pub struct SystemCommandSpawner;
+
+struct SystemCommandProcess {
+    child: Child,
+}
+
+impl CommandSpawner for SystemCommandSpawner {
+    fn spawn(&self, spec: &CommandSpec) -> io::Result<Box<dyn CommandProcess>> {
+        let child = Command::new(&spec.program).args(&spec.args).spawn()?;
+        Ok(Box::new(SystemCommandProcess { child }))
+    }
+}
+
+impl CommandProcess for SystemCommandProcess {
+    fn wait(mut self: Box<Self>) -> io::Result<ExitStatus> {
+        let result = self.child.wait();
+        if result.is_err() {
+            // Child::drop does not wait. Try to terminate and reap it if wait
+            // itself failed, so a best-effort worker cannot leave a zombie.
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+        result
+    }
+}
+
 pub trait CompletionNotifier {
     fn notify_completed(&mut self, state: &TimerState) -> anyhow::Result<()>;
 }
 
-#[derive(Debug, Default)]
-pub struct ExternalNotifier;
+pub struct ExternalNotifier {
+    spawner: Arc<dyn CommandSpawner>,
+    workers: Vec<JoinHandle<()>>,
+}
 
-impl CompletionNotifier for ExternalNotifier {
-    fn notify_completed(&mut self, state: &TimerState) -> anyhow::Result<()> {
-        notify_completed_best_effort(state);
-        Ok(())
+impl Default for ExternalNotifier {
+    fn default() -> Self {
+        Self::with_spawner(Arc::new(SystemCommandSpawner))
     }
 }
 
-pub fn notify_completed_best_effort(state: &TimerState) {
-    run_best_effort(&notify_send_command(state));
+impl ExternalNotifier {
+    pub fn with_spawner(spawner: Arc<dyn CommandSpawner>) -> Self {
+        Self {
+            spawner,
+            workers: Vec::new(),
+        }
+    }
 
-    if let Some(sound_file) = sound_file_path().filter(|path| path.exists()) {
-        play_sound_best_effort(&sound_file);
+    pub fn shutdown(self) {
+        for worker in self.workers {
+            if worker.join().is_err() {
+                eprintln!("notificação: worker terminou com panic");
+            }
+        }
+    }
+
+    fn enqueue<F>(&mut self, name: &'static str, job: F)
+    where
+        F: FnOnce(Arc<dyn CommandSpawner>) + Send + 'static,
+    {
+        let spawner = Arc::clone(&self.spawner);
+        match thread::Builder::new()
+            .name(name.to_string())
+            .spawn(move || job(spawner))
+        {
+            Ok(worker) => self.workers.push(worker),
+            Err(error) => eprintln!("notificação: falha ao criar worker {name}: {error}"),
+        }
+    }
+
+    fn enqueue_command(&mut self, name: &'static str, spec: CommandSpec) {
+        self.enqueue(name, move |spawner| {
+            run_command(&*spawner, &spec);
+        });
+    }
+}
+
+impl CompletionNotifier for ExternalNotifier {
+    fn notify_completed(&mut self, state: &TimerState) -> anyhow::Result<()> {
+        self.enqueue_command("omarchy-pomo-notify", notify_send_command(state));
+
+        if let Some(sound_file) = sound_file_path().filter(|path| path.exists()) {
+            self.enqueue("omarchy-pomo-audio", move |spawner| {
+                run_audio(&*spawner, &sound_file);
+            });
+        }
+        Ok(())
     }
 }
 
@@ -63,25 +144,48 @@ pub fn sound_file_path() -> Option<PathBuf> {
     Some(config_root.join("omarchy-pomo/done.ogg"))
 }
 
-pub fn play_sound_best_effort(sound_file: &Path) {
-    if run_best_effort(&paplay_command(sound_file)) {
-        return;
+fn run_audio(spawner: &dyn CommandSpawner, sound_file: &Path) -> bool {
+    if run_command(spawner, &paplay_command(sound_file)) {
+        return true;
     }
-    run_best_effort(&mpv_command(sound_file));
+    run_command(spawner, &mpv_command(sound_file))
 }
 
-fn run_best_effort(spec: &CommandSpec) -> bool {
-    Command::new(&spec.program)
-        .args(&spec.args)
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+fn run_command(spawner: &dyn CommandSpawner, spec: &CommandSpec) -> bool {
+    let process = match spawner.spawn(spec) {
+        Ok(process) => process,
+        Err(error) => {
+            eprintln!(
+                "notificação: não foi possível iniciar {}: {error}",
+                spec.program
+            );
+            return false;
+        }
+    };
+
+    match process.wait() {
+        Ok(status) if status.success() => true,
+        Ok(status) => {
+            eprintln!("notificação: {} terminou com status {status}", spec.program);
+            false
+        }
+        Err(error) => {
+            eprintln!("notificação: falha aguardando {}: {error}", spec.program);
+            false
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::state::{SessionType, TimerStatus};
+    use std::{
+        collections::VecDeque,
+        os::unix::process::ExitStatusExt,
+        sync::{mpsc, Mutex},
+        time::{Duration, Instant},
+    };
 
     fn finished_state() -> TimerState {
         TimerState {
@@ -91,9 +195,6 @@ mod tests {
             duration_secs: 1_500,
             started_at: None,
             paused_remaining_secs: Some(0),
-            session_id: Some("session-test".to_string()),
-            history_recorded: false,
-            notification_sent: false,
         }
     }
 
@@ -116,6 +217,140 @@ mod tests {
 
     #[test]
     fn ausencia_de_arquivo_de_som_nao_gera_erro() {
-        notify_completed_best_effort(&finished_state());
+        let path = PathBuf::from("/tmp/omarchy-pomo-test-no-such-file.ogg");
+        assert!(!path.exists());
+    }
+
+    struct MockProcess {
+        status: ExitStatus,
+    }
+
+    impl CommandProcess for MockProcess {
+        fn wait(self: Box<Self>) -> io::Result<ExitStatus> {
+            Ok(self.status)
+        }
+    }
+
+    struct MockSpawner {
+        outcomes: Mutex<VecDeque<MockOutcome>>,
+        calls: Mutex<Vec<CommandSpec>>,
+    }
+
+    enum MockOutcome {
+        SpawnFailure,
+        Exit(bool),
+    }
+
+    impl MockSpawner {
+        fn with_outcomes(outcomes: impl IntoIterator<Item = bool>) -> Self {
+            Self {
+                outcomes: Mutex::new(outcomes.into_iter().map(MockOutcome::Exit).collect()),
+                calls: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn with_results(outcomes: impl IntoIterator<Item = MockOutcome>) -> Self {
+            Self {
+                outcomes: Mutex::new(outcomes.into_iter().collect()),
+                calls: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn calls(&self) -> Vec<CommandSpec> {
+            self.calls.lock().unwrap().clone()
+        }
+    }
+
+    impl CommandSpawner for MockSpawner {
+        fn spawn(&self, spec: &CommandSpec) -> io::Result<Box<dyn CommandProcess>> {
+            self.calls.lock().unwrap().push(spec.clone());
+            let outcome = self
+                .outcomes
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or(MockOutcome::Exit(true));
+            let MockOutcome::Exit(success) = outcome else {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "mock command absent",
+                ));
+            };
+            let code = if success { 0 } else { 1 };
+            Ok(Box::new(MockProcess {
+                status: ExitStatus::from_raw(code),
+            }))
+        }
+    }
+
+    struct BlockingProcess {
+        release: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl CommandProcess for BlockingProcess {
+        fn wait(self: Box<Self>) -> io::Result<ExitStatus> {
+            while !self.release.load(std::sync::atomic::Ordering::Acquire) {
+                thread::sleep(Duration::from_millis(1));
+            }
+            Ok(ExitStatus::from_raw(0))
+        }
+    }
+
+    struct BlockingSpawner {
+        started: Mutex<Option<mpsc::Sender<()>>>,
+        release: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl CommandSpawner for BlockingSpawner {
+        fn spawn(&self, _spec: &CommandSpec) -> io::Result<Box<dyn CommandProcess>> {
+            let sender = self.started.lock().unwrap().take().unwrap();
+            sender.send(()).unwrap();
+            Ok(Box::new(BlockingProcess {
+                release: Arc::clone(&self.release),
+            }))
+        }
+    }
+
+    #[test]
+    fn paplay_falho_faz_fallback_para_mpv_sem_sobreposicao() {
+        let spawner = MockSpawner::with_outcomes([false, true]);
+        assert!(run_audio(&spawner, Path::new("/tmp/done.ogg")));
+
+        let calls = spawner.calls();
+        assert_eq!(
+            calls
+                .iter()
+                .map(|call| call.program.as_str())
+                .collect::<Vec<_>>(),
+            vec!["paplay", "mpv"]
+        );
+    }
+
+    #[test]
+    fn notify_nao_espera_o_processo_filho() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let release = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let spawner = Arc::new(BlockingSpawner {
+            started: Mutex::new(Some(started_tx)),
+            release: Arc::clone(&release),
+        });
+        let mut notifier = ExternalNotifier::with_spawner(spawner);
+        let started = Instant::now();
+        notifier.enqueue_command("test-notification", notify_send_command(&finished_state()));
+
+        assert!(started.elapsed() < Duration::from_millis(100));
+        started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("worker não iniciou o processo");
+        release.store(true, std::sync::atomic::Ordering::Release);
+        notifier.shutdown();
+    }
+
+    #[test]
+    fn spawn_falho_tambem_permite_fallback() {
+        let spawner =
+            MockSpawner::with_results([MockOutcome::SpawnFailure, MockOutcome::Exit(true)]);
+        assert!(run_audio(&spawner, Path::new("/tmp/done.ogg")));
+        assert_eq!(spawner.calls().len(), 2);
     }
 }

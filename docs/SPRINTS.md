@@ -268,12 +268,15 @@ Notificar o fim de sessão e tocar som opcional sem quebrar em ambientes sem áu
 - Tocar `~/.config/omarchy-pomo/done.ogg` com `paplay` ou `mpv` se existir.
 - Tolerar ausência dos comandos externos.
 - Integrar chamada no daemon ao detectar finalização.
+- Disparar comandos em workers e aguardar processos fora do caminho IPC.
+- Fazer fallback para `mpv` somente após falha de `paplay`, sem execução simultânea.
 
 ### Testes automatizados
 
 - Construção dos comandos externos esperados.
 - Ausência de arquivo de som não gera erro fatal.
 - Finalização chama notificação uma única vez via interface mockável.
+- Spawn, resultado, fallback e retorno imediato cobertos com spawner mockável.
 
 ### Critérios de aceite
 
@@ -281,6 +284,7 @@ Notificar o fim de sessão e tocar som opcional sem quebrar em ambientes sem áu
 - Som é opcional.
 - Falhas de `notify-send`, `paplay` ou `mpv` não derrubam daemon.
 - Histórico continua sendo registrado mesmo sem som.
+- Falhas são observáveis no `stderr` e processos filhos são aguardados pelos workers.
 
 ### Docs a atualizar ao fim
 

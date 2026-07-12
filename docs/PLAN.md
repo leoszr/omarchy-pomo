@@ -278,6 +278,12 @@ mpv --no-video ~/.config/omarchy-pomo/done.ogg
 
 Para o MVP, não implementar áudio nativo dentro do binário.
 
+Notificação e áudio são executados por workers de background. O caminho IPC apenas
+enfileira os trabalhos e retorna; o worker de áudio aguarda `paplay` terminar antes de
+iniciar o fallback `mpv`, nunca os dois simultaneamente. Falhas de spawn, execução ou
+espera são best-effort e observáveis no `stderr`. O daemon mantém ownership dos workers
+e aguarda seu encerramento ao sair normalmente; cada worker aguarda o processo filho.
+
 ---
 
 ## Files to modify
