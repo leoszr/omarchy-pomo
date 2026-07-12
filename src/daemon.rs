@@ -109,15 +109,13 @@ fn run_loop_internal(
                         thread::Builder::new()
                             .name("pomo-ipc".to_string())
                             .spawn(move || {
-                                if let Err(error) =
-                                    handle_stream(
-                                        stream,
-                                        &paths,
-                                        &request_lock,
-                                        &notifier,
-                                        &context,
-                                    )
-                                {
+                                if let Err(error) = handle_stream(
+                                    stream,
+                                    &paths,
+                                    &request_lock,
+                                    &notifier,
+                                    &context,
+                                ) {
                                     eprintln!("Erro IPC: {error:#}");
                                 }
                                 worker_active_workers.fetch_sub(1, Ordering::Release);
@@ -197,9 +195,7 @@ fn handle_request_at_with_notifier(
             state::write_state(paths, &state)?;
             Ok(IpcResponse::State { state })
         }
-        IpcRequest::Pause => {
-            update_state(paths, now, notifier, timer::pause)
-        }
+        IpcRequest::Pause => update_state(paths, now, notifier, timer::pause),
         IpcRequest::Resume => update_state(paths, now, notifier, timer::resume),
         IpcRequest::Stop => {
             // Assim como Start, Stop precisa reconciliar antes de limpar o estado.
