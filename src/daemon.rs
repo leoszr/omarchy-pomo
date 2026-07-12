@@ -412,9 +412,9 @@ mod tests {
         state::{SessionType, TimerStatus},
     };
     use chrono::Duration;
-    use std::fs;
     use std::os::unix::net::UnixListener;
     use std::time::{Duration as StdDuration, Instant};
+    use std::{fs, io::Write};
 
     #[derive(Default)]
     struct MockNotifier {
@@ -591,6 +591,95 @@ mod tests {
         drop(stuck_clients);
         stop.store(true, Ordering::Relaxed);
         scheduler.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn daemon_integrado_aceita_cliente_legado_e_rejeita_payload_excessivo() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = StatePaths::from_base(dir.path().join("omarchy-pomo"));
+        paths.ensure_base_dir().unwrap();
+        let listener = UnixListener::bind(&paths.socket_file).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let loop_stop = Arc::clone(&stop);
+        let loop_paths = paths.clone();
+        let scheduler =
+            thread::spawn(move || run_loop_internal(loop_paths, listener, Some(loop_stop), None));
+
+        let mut legacy = UnixStream::connect(&paths.socket_file).unwrap();
+        ipc::configure_client_timeouts(&legacy).unwrap();
+        legacy.write_all(br#"{"command":"status"}"#).unwrap();
+        legacy.shutdown(std::net::Shutdown::Write).unwrap();
+        let raw = ipc::read_frame(&mut legacy, ipc::MAX_RESPONSE_BYTES, "response IPC").unwrap();
+        assert!(matches!(
+            serde_json::from_slice::<IpcResponse>(&raw).unwrap(),
+            IpcResponse::State { .. }
+        ));
+
+        let mut oversized = UnixStream::connect(&paths.socket_file).unwrap();
+        ipc::configure_client_timeouts(&oversized).unwrap();
+        oversized
+            .write_all(&vec![b'x'; ipc::MAX_REQUEST_BYTES + 1])
+            .unwrap();
+        let raw = ipc::read_frame(&mut oversized, ipc::MAX_RESPONSE_BYTES, "response IPC").unwrap();
+        let IpcResponse::Error { message } = serde_json::from_slice::<IpcResponse>(&raw).unwrap()
+        else {
+            panic!("payload excessivo deveria retornar erro IPC");
+        };
+        assert!(message.contains("excede o limite"));
+
+        stop.store(true, Ordering::Relaxed);
+        scheduler.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn daemon_context_cacheia_historico_ate_append() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = StatePaths::from_base(dir.path().join("omarchy-pomo"));
+        let now = chrono::Local::now();
+        let mut context = DaemonContext::default();
+        let mut notifier = MockNotifier::default();
+
+        handle_request_with_context(
+            &paths,
+            IpcRequest::History,
+            now,
+            &mut notifier,
+            &mut context,
+        )
+        .unwrap();
+        handle_request_with_context(
+            &paths,
+            IpcRequest::History,
+            now,
+            &mut notifier,
+            &mut context,
+        )
+        .unwrap();
+        assert_eq!(context.history_cache.reads(), 1);
+
+        history::append_entry(
+            &paths,
+            &history::HistoryEntry {
+                session_id: Some("cache-test".to_string()),
+                date: now.date_naive(),
+                session_type: history::HistorySessionType::Focus,
+                label: "cache".to_string(),
+                duration_secs: 60,
+                completed: true,
+                finished_at: now,
+            },
+        )
+        .unwrap();
+        handle_request_with_context(
+            &paths,
+            IpcRequest::History,
+            now,
+            &mut notifier,
+            &mut context,
+        )
+        .unwrap();
+        assert_eq!(context.history_cache.reads(), 2);
     }
 
     #[test]

@@ -74,8 +74,8 @@ Clientes CLI/TUI/Waybar devem falar com o daemon usando mensagens JSON simples.
 No transporte, cada conexão carrega um único frame `JSON + newline`; EOF após
 payload não vazio também é aceito para upgrade cruzado com clientes legados.
 Requests e responses são limitadas a 64 KiB. O cliente usa timeout de 2
-segundos e o daemon timeout de 250 ms. O daemon atende com quatro workers
-fixos e fila limitada, rejeitando excesso com erro explícito. Isso evita que
+segundos e o daemon timeout de 250 ms. O daemon limita a 16 workers IPC
+simultâneos e rejeita excesso com erro explícito. Isso evita que
 cliente sem framing ou com escrita lenta bloqueie o accept loop ou cause
 crescimento ilimitado de workers.
 
@@ -306,7 +306,7 @@ mpv --no-video ~/.config/omarchy-pomo/done.ogg
 Para o MVP, não implementar áudio nativo dentro do binário.
 
 Notificação e áudio são executados por workers de background. O caminho IPC apenas
-enfileira os trabalhos e retorna; o worker de áudio aguarda `paplay` terminar antes de
+dispara os trabalhos e retorna; o worker de áudio aguarda `paplay` terminar antes de
 iniciar o fallback `mpv`, nunca os dois simultaneamente. Falhas de spawn, execução ou
 espera são best-effort e observáveis no `stderr`. O daemon mantém ownership dos workers
 e aguarda seu encerramento ao sair normalmente; cada worker aguarda o processo filho.

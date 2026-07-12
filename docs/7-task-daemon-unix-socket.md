@@ -27,10 +27,9 @@ operação afetada na mensagem; EOF com payload não vazio é o frame legado.
 
 ## Concorrência e recursos
 
-O accept loop usa quatro workers fixos e uma fila de 16 conexões. Um worker
-preso em um cliente lento não bloqueia os demais. A fila cheia é rejeitada com
-erro explícito; não há criação ilimitada de threads. No encerramento controlado,
-o sender é fechado e os workers são aguardados (reaping).
+O accept loop limita a 16 workers IPC simultâneos. Um worker preso em um cliente
+lento não bloqueia o scheduler e expira após 250 ms. Conexões acima do limite
+são rejeitadas com erro explícito; não há criação ilimitada de threads.
 
 Comandos suportados:
 

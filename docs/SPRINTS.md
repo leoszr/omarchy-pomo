@@ -413,14 +413,14 @@ Status: concluída no ciclo `sprint/03-ipc`.
 - framing newline-delimited JSON com compatibilidade legada por EOF;
 - limites de 64 KiB, timeout do daemon de 250 ms e timeout do cliente de 2 segundos;
 - erros explícitos para EOF, payload vazio/excessivo, JSON inválido e timeout;
-- quatro workers fixos com fila limitada a 16 conexões;
+- limite de 16 workers IPC simultâneos, com rejeição explícita do excesso;
 - testes de cliente preso, concorrência, payload excessivo e recuperação do daemon.
 
 Protocolo detalhado: [`docs/7-task-daemon-unix-socket.md`](7-task-daemon-unix-socket.md).
 
-## Sprint 5 — Performance de persistência, histórico e TUI
+## Sprint 11 — Performance de persistência, histórico e TUI
 
-Status: concluída nesta branch de performance.
+Status: concluída.
 
 ### Estratégia MVP
 
@@ -439,7 +439,7 @@ Há testes sem `sleep` para a decisão de não gravar estado, para reutilizaçã
 invalidação do cache após append, para os intervalos de polling e para a
 preservação de erro dentro da mesma rodada de refresh.
 
-## Sprint 10 — Modelo de domínio e limpeza de API (Sprint 6 de manutenção)
+## Sprint 12 — Modelo de domínio e limpeza de API
 
 Status: concluída.
 

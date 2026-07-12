@@ -69,9 +69,8 @@ legado. Payload vazio/EOF sem conteúdo continua sendo erro.
   para leitura e escrita, evitando que workers presos consumam toda a margem;
 - payload vazio, EOF prematuro, JSON inválido, excesso de tamanho e timeout
   retornam `type: "error"` com mensagem específica;
-- o daemon usa 4 workers fixos e fila limitada a 16 conexões. Quando cheia,
-  novas conexões recebem erro de sobrecarga em vez de consumir recursos sem
-  limite.
+- o daemon limita a 16 workers IPC simultâneos. Ao atingir o limite, novas
+  conexões recebem erro de sobrecarga em vez de criar threads sem controle.
 
 Um cliente Unix Socket que conecta e não envia request não impede outros
 clientes: o worker dedicado expira após o timeout.
@@ -243,7 +242,7 @@ deduplicadas contra outra linha legada com a mesma chave completa (incluindo
 - `timeout lendo request IPC`: o cliente não enviou um frame completo em 250 ms; envie JSON seguido de `\n`.
 - `request IPC vazio`: o cliente fechou sem enviar um frame; EOF com JSON não vazio é aceito para compatibilidade.
 - `excede o limite de 65536 bytes`: reduza o payload; o limite vale para request e response.
-- `daemon ocupado`: a fila limitada atingiu a capacidade; tente novamente.
+- `daemon ocupado`: o limite de workers simultâneos foi atingido; tente novamente.
 - Waybar mostra erro: confirme se `omarchy-pomo` está no `PATH` da sessão gráfica.
 - Sem som: instale `paplay` ou `mpv` e crie `~/.config/omarchy-pomo/done.ogg`.
 - Sem notificação: instale/configure `notify-send` e daemon de notificações.
