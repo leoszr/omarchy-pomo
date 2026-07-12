@@ -100,6 +100,7 @@ fn render_tiny(frame: &mut Frame, area: Rect, app: &TuiApp) {
         let mut lines = vec![
             Line::from(Span::styled("Daemon offline", error_style().bold())),
             Line::from(Span::styled("omarchy-pomo daemon", muted_style())),
+            action_line(&[("[q]", " Sair")]),
         ];
         if let Some(error) = &app.error {
             lines.push(Line::from(Span::styled(short_error(error), error_style())));
@@ -378,6 +379,7 @@ fn block_timer_lines(seconds: u64, style: Style) -> Vec<Line<'static>> {
         ["███", "█ █", "███", "  █", "██ "],
     ];
     let display = formatting::duration(seconds);
+    let display_len = display.chars().count();
     (0..5)
         .map(|row| {
             let mut spans = Vec::new();
@@ -389,7 +391,7 @@ fn block_timer_lines(seconds: u64, style: Style) -> Vec<Line<'static>> {
                     _ => " ",
                 };
                 spans.push(Span::styled(glyph, style));
-                if index < 4 {
+                if index + 1 < display_len {
                     spans.push(Span::raw(" "));
                 }
             }
@@ -412,7 +414,7 @@ fn center_lines(mut lines: Vec<Line<'static>>, height: u16) -> Vec<Line<'static>
 fn actions(state: Option<&TimerState>, width: u16) -> Vec<Line<'static>> {
     let compact = width < 64;
     match state.map(|state| &state.status) {
-        None => Vec::new(),
+        None => vec![action_line(&[("[q]", " Sair")])],
         Some(TimerStatus::Running) => {
             if compact {
                 vec![
@@ -446,12 +448,15 @@ fn actions(state: Option<&TimerState>, width: u16) -> Vec<Line<'static>> {
             action_line(&[("[3]", " Pausa  "), ("[4]", " Custom")]),
             action_line(&[("[q]", " Sair")]),
         ],
-        Some(TimerStatus::Idle | TimerStatus::Finished) => vec![action_line(&[
-            ("[1]", " 25 min  "),
-            ("[2]", " 30 min  "),
-            ("[3]", " Pausa  "),
-            ("[4]", " Personalizar"),
-        ])],
+        Some(TimerStatus::Idle | TimerStatus::Finished) => vec![
+            action_line(&[
+                ("[1]", " 25 min  "),
+                ("[2]", " 30 min  "),
+                ("[3]", " Pausa  "),
+                ("[4]", " Personalizar"),
+            ]),
+            action_line(&[("[q]", " Sair")]),
+        ],
     }
 }
 
@@ -660,6 +665,10 @@ mod tests {
             let output = draw(&app, width, height);
             assert!(output.contains("Daemon offline") || output.contains("Daemon indisponível"));
             assert!(output.contains("omarchy-pomo daemon"));
+            assert!(
+                output.contains("[q] Sair"),
+                "saída {width}x{height}: {output}"
+            );
             assert!(!output.contains("[1]"), "saída {width}x{height}: {output}");
             assert!(!output.contains("[4]"), "saída {width}x{height}: {output}");
         }
@@ -683,6 +692,23 @@ mod tests {
         assert!(output.contains("[1]"));
         assert!(output.contains("[4]"));
         assert!(output.contains("[q]"), "saída tiny idle: {output}");
+
+        let output = draw(&app, 70, 24);
+        assert!(output.contains("[q] Sair"), "saída wide idle: {output}");
+
+        app.state = Some(state(TimerStatus::Finished, SessionCategory::Focus));
+        let output = draw(&app, 70, 24);
+        assert!(output.contains("[q] Sair"), "saída wide finished: {output}");
+    }
+
+    #[test]
+    fn timer_block_separa_todos_os_digitos_de_duracoes_longas() {
+        for (seconds, expected_width, expected_spans) in [(7_200, 21, 11), (86_400, 25, 13)] {
+            let lines = block_timer_lines(seconds, terminal_style());
+            assert_eq!(lines.len(), 5);
+            assert!(lines.iter().all(|line| line.width() == expected_width));
+            assert!(lines.iter().all(|line| line.spans.len() == expected_spans));
+        }
     }
 
     #[test]
