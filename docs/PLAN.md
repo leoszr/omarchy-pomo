@@ -6,7 +6,7 @@ Criar um aplicativo Pomodoro em Rust para Omarchy/Hyprland que funcione como uti
 
 Objetivo do MVP: entregar um Pomodoro simples, estável e integrado ao desktop Linux, sem ciclos automáticos complexos nem recursos de estatísticas avançadas.
 
-Estado do projeto: MVP concluído nas Sprints 1 a 9. Implementado: base de domínio, caminhos locais, persistência em `state.json`, lógica de timer por timestamp, histórico JSONL, daemon via Unix Socket, CLI via IPC, JSON para Waybar, notificação/som opcional, TUI Ratatui com tempo customizado, exemplos Waybar/Hyprland, hardening do socket e build release verificado. O daemon é a fonte de verdade.
+Estado do projeto: MVP concluído nas Sprints 1 a 9, com a correção de ciclo de vida aplicada. Implementado: base de domínio, caminhos locais, persistência em `state.json`, lógica de timer por timestamp, histórico JSONL, daemon via Unix Socket com tick autônomo, CLI via IPC, JSON para Waybar, notificação/som opcional, TUI Ratatui com tempo customizado, exemplos Waybar/Hyprland, hardening do socket e build release verificado. O daemon é a fonte de verdade.
 
 Fluxo desejado:
 
@@ -101,6 +101,13 @@ O timer não deve depender de decremento por segundo. O tempo restante deve ser 
 ```text
 remaining = duration - (now - started_at)
 ```
+
+O daemon usa um loop não bloqueante com espera de até 100 ms para reconciliar
+uma sessão vencida mesmo sem clientes consultando o socket. A reconciliação
+também ocorre antes de `start` e `stop`; o histórico recebe o instante real do
+vencimento, inclusive quando ele cruza a meia-noite local. Durações
+customizadas são limitadas a 1.440 minutos e convertidas para segundos com
+aritmética checked.
 
 Ao pausar, gravar `paused_remaining_secs`. Ao retomar, recriar `started_at` usando o restante salvo como nova duração operacional.
 

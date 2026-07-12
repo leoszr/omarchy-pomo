@@ -60,7 +60,7 @@ impl TuiApp {
 
     pub fn push_custom_digit(&mut self, digit: char) {
         if let Some(input) = &mut self.custom_input {
-            if input.minutes.len() < 3 {
+            if input.minutes.len() < 4 {
                 input.minutes.push(digit);
             }
         }
@@ -92,9 +92,7 @@ impl TuiApp {
             .minutes
             .parse()
             .map_err(|_| "digite minutos válidos".to_string())?;
-        if minutes == 0 {
-            return Err("tempo customizado deve ser maior que zero".to_string());
-        }
+        crate::timer::duration_secs_from_minutes(minutes).map_err(|error| format!("{error:#}"))?;
         let session_type = input
             .session_type
             .ok_or_else(|| "escolha f para foco ou b para break".to_string())?;

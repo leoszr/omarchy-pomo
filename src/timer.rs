@@ -6,6 +6,21 @@ use crate::{
     state::{SessionType, TimerState, TimerStatus},
 };
 
+/// Limite deliberado para evitar durações absurdas e overflow na conversão
+/// de minutos para segundos. Sessões maiores não são úteis para este timer.
+pub const MAX_CUSTOM_MINUTES: u64 = 24 * 60;
+
+pub fn duration_secs_from_minutes(minutes: u64) -> anyhow::Result<u64> {
+    ensure!(minutes > 0, "tempo customizado deve ser maior que zero");
+    ensure!(
+        minutes <= MAX_CUSTOM_MINUTES,
+        "tempo customizado não pode exceder {MAX_CUSTOM_MINUTES} minutos"
+    );
+    minutes
+        .checked_mul(60)
+        .ok_or_else(|| anyhow::anyhow!("duração customizada excede o limite suportado"))
+}
+
 pub fn start_from_args(args: &StartArgs, now: DateTime<Local>) -> anyhow::Result<TimerState> {
     if args.break_session {
         return Ok(start_session(
@@ -17,7 +32,6 @@ pub fn start_from_args(args: &StartArgs, now: DateTime<Local>) -> anyhow::Result
     }
 
     if let Some(minutes) = args.custom {
-        ensure!(minutes > 0, "tempo customizado deve ser maior que zero");
         let session_type = match args.session_type {
             Some(CustomSessionType::Focus) => "Focus",
             Some(CustomSessionType::Break) => "Break",
@@ -26,7 +40,7 @@ pub fn start_from_args(args: &StartArgs, now: DateTime<Local>) -> anyhow::Result
         return Ok(start_session(
             SessionType::Custom,
             format!("Custom {session_type} ({minutes} min)"),
-            minutes * 60,
+            duration_secs_from_minutes(minutes)?,
             now,
         ));
     }
@@ -112,6 +126,17 @@ pub fn finish_if_due(state: &TimerState, now: DateTime<Local>) -> TimerState {
     }
 
     state.clone()
+}
+
+/// Instante nominal de conclusão. Para uma sessão atrasada, este é o instante
+/// do vencimento, não o instante em que algum cliente consultou o daemon.
+pub fn due_at(state: &TimerState) -> Option<DateTime<Local>> {
+    if state.status != TimerStatus::Running {
+        return None;
+    }
+    let started_at = state.started_at?;
+    let seconds = i64::try_from(state.duration_secs).ok()?;
+    started_at.checked_add_signed(chrono::Duration::seconds(seconds))
 }
 
 pub fn remaining_secs_at(state: &TimerState, now: DateTime<Local>) -> u64 {
@@ -200,5 +225,38 @@ mod tests {
 
         assert_eq!(finished.status, TimerStatus::Finished);
         assert_eq!(finished_again, finished);
+    }
+
+    #[test]
+    fn finalizacao_preserva_instante_real_do_vencimento() {
+        let started_at = Local::now();
+        let state = running(started_at);
+        let detected_at = started_at + Duration::seconds(75);
+
+        assert_eq!(due_at(&state), Some(started_at + Duration::seconds(60)));
+        assert_eq!(remaining_secs_at(&state, detected_at), 0);
+    }
+
+    #[test]
+    fn customizado_valida_zero_limite_e_overflow() {
+        assert!(duration_secs_from_minutes(0).is_err());
+        assert_eq!(
+            duration_secs_from_minutes(MAX_CUSTOM_MINUTES).unwrap(),
+            MAX_CUSTOM_MINUTES * 60
+        );
+        assert!(duration_secs_from_minutes(MAX_CUSTOM_MINUTES + 1).is_err());
+        assert!(duration_secs_from_minutes(u64::MAX).is_err());
+    }
+
+    #[test]
+    fn start_por_args_rejeita_duracao_invalida_do_ipc() {
+        let args = StartArgs {
+            profile: None,
+            break_session: false,
+            custom: Some(u64::MAX),
+            session_type: Some(CustomSessionType::Focus),
+        };
+
+        assert!(start_from_args(&args, Local::now()).is_err());
     }
 }

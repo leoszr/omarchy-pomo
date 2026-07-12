@@ -2,6 +2,18 @@
 
 Este documento quebra o `docs/PLAN.md` em sprints pequenas o bastante para desenvolvimento autônomo. Cada sprint deve terminar com código testado, critérios de aceite verificados e documentação atualizada.
 
+## Correção de ciclo de vida — concluída
+
+- O daemon possui tick interno não bloqueante e finaliza sessões sem polling de
+  Waybar, TUI ou CLI.
+- `start` e `stop` reconciliam sessões vencidas antes de substituir/limpar o
+  estado.
+- Histórico usa o instante nominal de vencimento, com data local correta.
+- Duração customizada é limitada a 1.440 minutos e usa multiplicação checked na
+  CLI e no domínio/IPC.
+- Testes determinísticos cobrem tick autônomo, `start`/`stop` após vencimento,
+  virada de dia e limites.
+
 ## Definição de pronto por sprint
 
 Antes de considerar qualquer sprint concluída:

@@ -40,6 +40,17 @@ omarchy-pomo history
 omarchy-pomo tui
 ```
 
+## Ciclo de vida do timer
+
+O daemon finaliza sessões vencidas autonomamente em um tick interno de até
+100 ms; Waybar, TUI e CLI não precisam ser consultadas para registrar o fim.
+Ao executar `start` ou `stop`, uma sessão que venceu desde a última consulta é
+reconciliada antes da nova operação, incluindo histórico e notificação.
+
+O histórico usa o instante nominal do vencimento (`started_at + duração`) e a
+data local desse instante. Sessões customizadas aceitam de 1 a 1.440 minutos;
+o limite é aplicado tanto pela CLI quanto pelo domínio/IPC.
+
 Se o daemon não estiver rodando, a CLI retorna erro amigável pedindo `omarchy-pomo daemon`. Para `status --waybar`, a saída continua sendo JSON válido com classe `error`.
 
 ## TUI
