@@ -131,7 +131,6 @@ fn run_loop_internal(
 pub fn handle_request(paths: &StatePaths, request: IpcRequest) -> anyhow::Result<IpcResponse> {
     let mut notifier = ExternalNotifier;
     handle_request_at_with_notifier(paths, request, chrono::Local::now(), &mut notifier)
-
 }
 
 fn handle_request_at_with_notifier(
@@ -771,5 +770,4 @@ mod tests {
 
         assert!(!paths.socket_file.exists());
     }
-
 }
