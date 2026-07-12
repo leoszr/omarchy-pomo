@@ -23,7 +23,6 @@ pub struct CustomInput {
 
 impl TuiApp {
     pub fn apply_response(&mut self, response: IpcResponse) {
-        self.error = None;
         match response {
             IpcResponse::State { state } => self.state = Some(state),
             IpcResponse::History { summary } => self.summary = Some(summary),
@@ -33,6 +32,10 @@ impl TuiApp {
 
     pub fn set_error(&mut self, error: impl Into<String>) {
         self.error = Some(error.into());
+    }
+
+    pub fn clear_error(&mut self) {
+        self.error = None;
     }
 
     pub fn remaining_secs(&self) -> u64 {
@@ -137,6 +140,17 @@ mod tests {
         });
 
         assert_eq!(app.error.as_deref(), Some("daemon caiu"));
+    }
+
+    #[test]
+    fn resposta_bem_sucedida_nao_apaga_erro_do_mesmo_ciclo() {
+        let mut app = TuiApp::default();
+        app.set_error("histórico indisponível");
+        app.apply_response(IpcResponse::State {
+            state: crate::state::TimerState::idle(),
+        });
+
+        assert_eq!(app.error.as_deref(), Some("histórico indisponível"));
     }
 
     #[test]

@@ -44,6 +44,7 @@ fn run_loop_internal(
     accepted_tx: Option<Sender<()>>,
 ) -> anyhow::Result<()> {
     let notifier = Arc::new(Mutex::new(ExternalNotifier::default()));
+    let context = Arc::new(Mutex::new(DaemonContext::default()));
     let request_lock = Arc::new(Mutex::new(()));
     let active_workers = Arc::new(AtomicUsize::new(0));
 
@@ -92,6 +93,7 @@ fn run_loop_internal(
                     let paths = paths.clone();
                     let request_lock = Arc::clone(&request_lock);
                     let notifier = Arc::clone(&notifier);
+                    let context = Arc::clone(&context);
                     let active_workers = Arc::clone(&active_workers);
                     if let Err(error) = stream
                         .set_read_timeout(Some(IPC_IO_TIMEOUT))
@@ -108,7 +110,13 @@ fn run_loop_internal(
                             .name("pomo-ipc".to_string())
                             .spawn(move || {
                                 if let Err(error) =
-                                    handle_stream(stream, &paths, &request_lock, &notifier)
+                                    handle_stream(
+                                        stream,
+                                        &paths,
+                                        &request_lock,
+                                        &notifier,
+                                        &context,
+                                    )
                                 {
                                     eprintln!("Erro IPC: {error:#}");
                                 }
@@ -142,7 +150,34 @@ fn run_loop_internal(
 #[cfg(test)]
 fn handle_request(paths: &StatePaths, request: IpcRequest) -> anyhow::Result<IpcResponse> {
     let mut notifier = ExternalNotifier::default();
-    handle_request_at_with_notifier(paths, request, chrono::Local::now(), &mut notifier)
+    let mut context = DaemonContext::default();
+    handle_request_with_context(
+        paths,
+        request,
+        chrono::Local::now(),
+        &mut notifier,
+        &mut context,
+    )
+}
+
+#[derive(Debug, Default)]
+struct DaemonContext {
+    history_cache: history::HistoryCache,
+}
+
+fn handle_request_with_context(
+    paths: &StatePaths,
+    request: IpcRequest,
+    now: chrono::DateTime<chrono::Local>,
+    notifier: &mut impl CompletionNotifier,
+    context: &mut DaemonContext,
+) -> anyhow::Result<IpcResponse> {
+    if request == IpcRequest::History {
+        reconcile_finished_state_at(paths, now, notifier)?;
+        let summary = context.history_cache.summary(paths, now.date_naive())?;
+        return Ok(IpcResponse::History { summary });
+    }
+    handle_request_at_with_notifier(paths, request, now, notifier)
 }
 
 fn handle_request_at_with_notifier(
@@ -163,11 +198,9 @@ fn handle_request_at_with_notifier(
             Ok(IpcResponse::State { state })
         }
         IpcRequest::Pause => {
-            update_state(paths, now, notifier, |state, now| timer::pause(&state, now))
+            update_state(paths, now, notifier, timer::pause)
         }
-        IpcRequest::Resume => update_state(paths, now, notifier, |state, now| {
-            timer::resume(&state, now)
-        }),
+        IpcRequest::Resume => update_state(paths, now, notifier, timer::resume),
         IpcRequest::Stop => {
             // Assim como Start, Stop precisa reconciliar antes de limpar o estado.
             reconcile_finished_state_at(paths, now, notifier)?;
@@ -189,6 +222,7 @@ fn handle_stream(
     paths: &StatePaths,
     request_lock: &Mutex<()>,
     notifier: &Mutex<ExternalNotifier>,
+    context: &Mutex<DaemonContext>,
 ) -> anyhow::Result<()> {
     ipc::configure_server_timeouts(&stream)?;
     let response = match ipc::read_frame(&mut stream, ipc::MAX_REQUEST_BYTES, "request IPC") {
@@ -200,11 +234,15 @@ fn handle_stream(
                 let mut notifier = notifier
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
-                handle_request_at_with_notifier(
+                let mut context = context
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                handle_request_with_context(
                     paths,
                     request,
                     chrono::Local::now(),
                     &mut *notifier,
+                    &mut context,
                 )
                 .unwrap_or_else(|error| IpcResponse::Error {
                     message: format!("{error:#}"),
@@ -256,11 +294,11 @@ fn update_state(
     paths: &StatePaths,
     now: chrono::DateTime<chrono::Local>,
     notifier: &mut impl CompletionNotifier,
-    update: impl FnOnce(TimerState, chrono::DateTime<chrono::Local>) -> TimerState,
+    update: impl FnOnce(&TimerState, chrono::DateTime<chrono::Local>) -> TimerState,
 ) -> anyhow::Result<IpcResponse> {
     let current = reconcile_finished_state_at(paths, now, notifier)?;
-    let updated = update(current, now);
-    state::write_state(paths, &updated)?;
+    let updated = update(&current, now);
+    state::write_state_if_changed(paths, &current, &updated)?;
     Ok(IpcResponse::State { state: updated })
 }
 
@@ -283,17 +321,16 @@ fn reconcile_finished_state_at(
     if updated.status == TimerStatus::Finished {
         // Commit point 1: make the terminal state durable before writing any
         // side effect.  A crash after this point is recovered below.
-        state::write_state(paths, &updated)
+        state::write_state_if_changed(paths, &current, &updated)
             .context("sessão concluída, mas falha ao persistir estado Finished")?;
 
-        let finished_at = timer::due_at(&current).unwrap_or(now);
-        let entry = history::HistoryEntry::completed_from_state(&updated, finished_at);
-        // Commit point 2: append is synced and identity-deduplicated.  If the
-        // process dies before the marker write, the next call safely retries.
-        history::append_entry(paths, &entry)
-            .context("estado Finished preservado, mas falha ao persistir histórico")?;
-
         if !updated.history_recorded {
+            let finished_at = timer::due_at(&current).unwrap_or(now);
+            let entry = history::HistoryEntry::completed_from_state(&updated, finished_at);
+            // Commit point 2: append is synced and identity-deduplicated. If the
+            // process dies before the marker write, the next call safely retries.
+            history::append_entry(paths, &entry)
+                .context("estado Finished preservado, mas falha ao persistir histórico")?;
             updated.history_recorded = true;
             state::write_state(paths, &updated)
                 .context("histórico persistido, mas falha ao confirmar marcador no estado")?;
@@ -308,8 +345,8 @@ fn reconcile_finished_state_at(
                 "conclusão e histórico persistidos, mas falha ao confirmar notificação; uma nova tentativa pode notificar novamente",
             )?;
         }
-    } else if current != updated {
-        state::write_state(paths, &updated)?;
+    } else {
+        state::write_state_if_changed(paths, &current, &updated)?;
     }
     Ok(updated)
 }

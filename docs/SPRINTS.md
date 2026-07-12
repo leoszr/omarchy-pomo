@@ -417,3 +417,24 @@ Status: concluída no ciclo `sprint/03-ipc`.
 - testes de cliente preso, concorrência, payload excessivo e recuperação do daemon.
 
 Protocolo detalhado: [`docs/7-task-daemon-unix-socket.md`](7-task-daemon-unix-socket.md).
+
+## Sprint 5 — Performance de persistência, histórico e TUI
+
+Status: concluída nesta branch de performance.
+
+### Estratégia MVP
+
+- `state.json`: `write_state_if_changed` compara estados antes de chamar o
+  sistema de arquivos. Status e transições idempotentes não geram writes.
+- `history.jsonl`: o daemon mantém um cache das entradas e invalida por
+  tamanho/mtime. Como o arquivo é append-only e só o daemon escreve nele, a
+  invalidação é simples e explícita sem introduzir um resumo incremental mais
+  complexo.
+- TUI: redraw local em 100 ms; status a cada 1 s; histórico a cada 5 s. Uma
+  transição detectada para `Finished` força atualização imediata do histórico.
+
+### Testes
+
+Há testes sem `sleep` para a decisão de não gravar estado, para reutilização e
+invalidação do cache após append, para os intervalos de polling e para a
+preservação de erro dentro da mesma rodada de refresh.

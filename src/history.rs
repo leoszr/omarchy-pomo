@@ -2,6 +2,7 @@ use std::{
     collections::HashSet,
     fs,
     io::{ErrorKind, Write},
+    time::SystemTime,
 };
 
 use anyhow::Context;
@@ -91,6 +92,64 @@ pub fn read_entries(paths: &StatePaths) -> anyhow::Result<Vec<HistoryEntry>> {
     };
 
     Ok(parse_jsonl_lossy(&raw))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum HistoryFingerprint {
+    Missing,
+    Present {
+        len: u64,
+        modified: Option<SystemTime>,
+    },
+}
+
+/// Cache do histórico append-only, invalidado por tamanho e mtime.
+#[derive(Debug, Default)]
+pub(crate) struct HistoryCache {
+    fingerprint: Option<HistoryFingerprint>,
+    entries: Vec<HistoryEntry>,
+    #[cfg(test)]
+    reads: usize,
+}
+
+impl HistoryCache {
+    pub(crate) fn summary(
+        &mut self,
+        paths: &StatePaths,
+        date: NaiveDate,
+    ) -> anyhow::Result<DailySummary> {
+        let fingerprint = history_fingerprint(paths)?;
+        if self.fingerprint.as_ref() != Some(&fingerprint) {
+            self.entries = read_entries(paths)?;
+            self.fingerprint = Some(fingerprint);
+            #[cfg(test)]
+            {
+                self.reads += 1;
+            }
+        }
+        Ok(summarize_day(&self.entries, date))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn reads(&self) -> usize {
+        self.reads
+    }
+}
+
+fn history_fingerprint(paths: &StatePaths) -> anyhow::Result<HistoryFingerprint> {
+    match fs::metadata(&paths.history_file) {
+        Ok(metadata) => Ok(HistoryFingerprint::Present {
+            len: metadata.len(),
+            modified: metadata.modified().ok(),
+        }),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(HistoryFingerprint::Missing),
+        Err(error) => Err(error).with_context(|| {
+            format!(
+                "falha ao consultar histórico {}",
+                paths.history_file.display()
+            )
+        }),
+    }
 }
 
 pub fn parse_jsonl_lossy(raw: &str) -> Vec<HistoryEntry> {
@@ -305,5 +364,25 @@ mod tests {
         assert!(append_entry_if_absent(&paths, &current).unwrap());
 
         assert_eq!(read_entries(&paths).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn cache_reutiliza_parse_e_invalida_apos_append() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = StatePaths::from_base(dir.path().join("omarchy-pomo"));
+        let today = Local::now().date_naive();
+        let first = entry(HistorySessionType::Focus, today, 60);
+        let second = entry(HistorySessionType::Break, today, 300);
+        let mut cache = HistoryCache::default();
+
+        append_entry(&paths, &first).unwrap();
+        assert_eq!(cache.summary(&paths, today).unwrap().focus_sessions, 1);
+        assert_eq!(cache.summary(&paths, today).unwrap().focus_sessions, 1);
+        assert_eq!(cache.reads(), 1);
+
+        append_entry(&paths, &second).unwrap();
+        let summary = cache.summary(&paths, today).unwrap();
+        assert_eq!(summary.break_sessions, 1);
+        assert_eq!(cache.reads(), 2);
     }
 }

@@ -98,6 +98,23 @@ q = sair sem parar timer
 
 A TUI consulta/controla o daemon via IPC. Fechar com `q` não para o timer.
 
+## Performance de persistência e TUI
+
+O daemon compara o estado antes de persistir. Um `status` que não provoca
+transição não regrava `state.json`; comandos que não mudam o estado também
+evitam a escrita.
+
+A TUI redesenha o tempo localmente a cada 100 ms usando o timestamp recebido,
+mas consulta o daemon apenas uma vez por segundo. O resumo de histórico tem
+frequência separada de 5 segundos. Depois de detectar `Finished`, a TUI busca o
+resumo imediatamente. Nenhum desses relógios locais substitui o daemon como
+fonte de verdade.
+
+O daemon mantém o histórico em cache. O JSONL só é relido e parseado quando
+tamanho ou data de modificação do arquivo mudam; uma nova conclusão invalida o
+cache naturalmente pelo append. A troca de data recalcula o resumo usando as
+entradas já cacheadas, sem reler o arquivo.
+
 ## Notificação e som
 
 Ao finalizar uma sessão, o daemon tenta executar:

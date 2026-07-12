@@ -207,6 +207,20 @@ fn sync_directory(path: &std::path::Path) -> anyhow::Result<()> {
         .with_context(|| format!("falha ao sincronizar diretório {}", path.display()))
 }
 
+/// Grava o estado apenas quando a transição realmente mudou algum campo.
+pub fn write_state_if_changed(
+    paths: &StatePaths,
+    previous: &TimerState,
+    next: &TimerState,
+) -> anyhow::Result<bool> {
+    if previous == next {
+        return Ok(false);
+    }
+
+    write_state(paths, next)?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -316,6 +330,16 @@ mod tests {
         assert!(state.session_id.is_some());
         assert!(!state.history_recorded);
         assert!(!state.notification_sent);
+    }
+
+    #[test]
+    fn nao_grava_estado_igual() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = StatePaths::from_base(dir.path().join("omarchy-pomo"));
+        let state = running_state();
+
+        assert!(!write_state_if_changed(&paths, &state, &state).unwrap());
+        assert!(!paths.state_file.exists());
     }
 
     #[test]

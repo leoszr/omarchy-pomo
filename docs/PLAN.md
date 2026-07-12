@@ -32,6 +32,18 @@ A fonte de verdade deve ser sempre o daemon. A TUI e a Waybar apenas consultam o
 
 O backlog executável está dividido em sprints autônomas em `docs/SPRINTS.md`. Cada sprint possui tasks, testes automatizados, critérios de aceite e documentação obrigatória ao final.
 
+## Performance pós-MVP
+
+A persistência usa comparação estrutural: `state.json` só é escrito quando o
+estado muda. O histórico usa cache no daemon, invalidado por tamanho ou mtime
+do `history.jsonl`; a consulta do resumo apenas recalcula sobre as entradas em
+memória enquanto a fingerprint permanece igual.
+
+Na TUI, o redraw visual é local e frequente, mas não consulta o daemon nesse
+ritmo. Status é consultado a cada 1 segundo e histórico a cada 5 segundos. A
+detecção de `Finished` força uma consulta imediata do histórico, preservando a
+atualização rápida sem transformar a TUI em fonte de verdade.
+
 ### Arquitetura recomendada
 
 Implementar um binário Rust único chamado `pomo` com subcomandos via `clap`:

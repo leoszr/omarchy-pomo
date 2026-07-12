@@ -2,13 +2,48 @@ pub mod app;
 pub mod events;
 pub mod ui;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyEventKind};
 
 use crate::{ipc, state::StatePaths};
 use app::TuiApp;
 use events::TuiAction;
+
+const VISUAL_FRAME_INTERVAL: Duration = Duration::from_millis(100);
+const STATUS_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
+const HISTORY_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
+
+#[derive(Debug)]
+struct RefreshSchedule {
+    next_status: Instant,
+    next_history: Instant,
+}
+
+impl RefreshSchedule {
+    fn new(now: Instant) -> Self {
+        Self {
+            next_status: now,
+            next_history: now,
+        }
+    }
+
+    fn status_due(&self, now: Instant) -> bool {
+        now >= self.next_status
+    }
+
+    fn history_due(&self, now: Instant) -> bool {
+        now >= self.next_history
+    }
+
+    fn mark_status_refreshed(&mut self, now: Instant) {
+        self.next_status = now + STATUS_REFRESH_INTERVAL;
+    }
+
+    fn mark_history_refreshed(&mut self, now: Instant) {
+        self.next_history = now + HISTORY_REFRESH_INTERVAL;
+    }
+}
 
 pub fn run() -> anyhow::Result<()> {
     let paths = StatePaths::new()?;
@@ -20,10 +55,31 @@ pub fn run() -> anyhow::Result<()> {
 
 fn run_app(terminal: &mut ratatui::DefaultTerminal, paths: &StatePaths) -> anyhow::Result<()> {
     let mut app = TuiApp::default();
+    let mut schedule = RefreshSchedule::new(Instant::now());
 
     loop {
+        let now = Instant::now();
         if app.custom_input.is_none() {
-            refresh(&mut app, paths);
+            let status_due = schedule.status_due(now);
+            let history_due = schedule.history_due(now);
+            if status_due || history_due {
+                // Uma falha sobrevive às respostas bem-sucedidas da mesma rodada.
+                app.clear_error();
+            }
+            let mut history_refreshed = false;
+            if status_due {
+                let completed = refresh_status(&mut app, paths);
+                schedule.mark_status_refreshed(Instant::now());
+                if completed {
+                    refresh_history(&mut app, paths);
+                    schedule.mark_history_refreshed(Instant::now());
+                    history_refreshed = true;
+                }
+            }
+            if history_due && !history_refreshed {
+                refresh_history(&mut app, paths);
+                schedule.mark_history_refreshed(Instant::now());
+            }
         }
         terminal.draw(|frame| ui::render(frame, &app))?;
 
@@ -31,7 +87,7 @@ fn run_app(terminal: &mut ratatui::DefaultTerminal, paths: &StatePaths) -> anyho
             break;
         }
 
-        if event::poll(Duration::from_millis(250))? {
+        if event::poll(VISUAL_FRAME_INTERVAL)? {
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     let action = if app.custom_input.is_some() {
@@ -71,19 +127,57 @@ fn handle_action(app: &mut TuiApp, paths: &StatePaths, action: TuiAction) {
 }
 
 fn send_request(app: &mut TuiApp, paths: &StatePaths, request: &ipc::IpcRequest) {
+    app.clear_error();
     match ipc::request(paths, request) {
         Ok(response) => app.apply_response(response),
         Err(error) => app.set_error(format!("{error:#}")),
     }
 }
 
-fn refresh(app: &mut TuiApp, paths: &StatePaths) {
+fn refresh_status(app: &mut TuiApp, paths: &StatePaths) -> bool {
+    let was_finished = app
+        .state
+        .as_ref()
+        .is_some_and(|state| state.status == crate::state::TimerStatus::Finished);
+    let mut completed = false;
     match ipc::request(paths, &ipc::IpcRequest::Status) {
-        Ok(response) => app.apply_response(response),
+        Ok(response) => {
+            app.apply_response(response);
+            completed = !was_finished
+                && app
+                    .state
+                    .as_ref()
+                    .is_some_and(|state| state.status == crate::state::TimerStatus::Finished);
+        }
         Err(error) => app.set_error(format!("{error:#}")),
     }
+    completed
+}
+
+fn refresh_history(app: &mut TuiApp, paths: &StatePaths) {
     match ipc::request(paths, &ipc::IpcRequest::History) {
         Ok(response) => app.apply_response(response),
         Err(error) => app.set_error(format!("{error:#}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refreshes_separados_nao_pollam_quatro_vezes_por_segundo() {
+        let start = Instant::now();
+        let mut schedule = RefreshSchedule::new(start);
+        assert!(schedule.status_due(start));
+        assert!(schedule.history_due(start));
+
+        schedule.mark_status_refreshed(start);
+        schedule.mark_history_refreshed(start);
+
+        assert!(!schedule.status_due(start + Duration::from_millis(999)));
+        assert!(schedule.status_due(start + Duration::from_secs(1)));
+        assert!(!schedule.history_due(start + Duration::from_secs(4)));
+        assert!(schedule.history_due(start + Duration::from_secs(5)));
     }
 }
