@@ -227,16 +227,37 @@ fn reconcile_finished_state_at(
     notifier: &mut impl CompletionNotifier,
 ) -> anyhow::Result<TimerState> {
     let current = state::read_state(paths)?;
-    let updated = timer::finish_if_due(&current, now);
+    let mut updated = timer::finish_if_due(&current, now);
 
-    if current.status != TimerStatus::Finished && updated.status == TimerStatus::Finished {
+    if updated.status == TimerStatus::Finished {
+        // Commit point 1: make the terminal state durable before writing any
+        // side effect.  A crash after this point is recovered below.
+        state::write_state(paths, &updated)
+            .context("sessão concluída, mas falha ao persistir estado Finished")?;
+
         let finished_at = timer::due_at(&current).unwrap_or(now);
         let entry = history::HistoryEntry::completed_from_state(&updated, finished_at);
-        history::append_entry(paths, &entry)?;
-        notifier.notify_completed(&updated);
-    }
+        // Commit point 2: append is synced and identity-deduplicated.  If the
+        // process dies before the marker write, the next call safely retries.
+        history::append_entry(paths, &entry)
+            .context("estado Finished preservado, mas falha ao persistir histórico")?;
 
-    if current != updated {
+        if !updated.history_recorded {
+            updated.history_recorded = true;
+            state::write_state(paths, &updated)
+                .context("histórico persistido, mas falha ao confirmar marcador no estado")?;
+        }
+
+        if !updated.notification_sent {
+            notifier
+                .notify_completed(&updated)
+                .context("histórico persistido, mas falha ao notificar conclusão")?;
+            updated.notification_sent = true;
+            state::write_state(paths, &updated).context(
+                "conclusão e histórico persistidos, mas falha ao confirmar notificação; uma nova tentativa pode notificar novamente",
+            )?;
+        }
+    } else if current != updated {
         state::write_state(paths, &updated)?;
     }
     Ok(updated)
@@ -307,6 +328,7 @@ mod tests {
         state::{SessionType, TimerStatus},
     };
     use chrono::Duration;
+    use std::fs;
     use std::os::unix::net::UnixListener;
     use std::time::{Duration as StdDuration, Instant};
 
@@ -316,8 +338,25 @@ mod tests {
     }
 
     impl crate::notify::CompletionNotifier for MockNotifier {
-        fn notify_completed(&mut self, _state: &TimerState) {
+        fn notify_completed(&mut self, _state: &TimerState) -> anyhow::Result<()> {
             self.calls += 1;
+            Ok(())
+        }
+    }
+
+    struct FailingNotifier {
+        calls: usize,
+        failures_left: usize,
+    }
+
+    impl crate::notify::CompletionNotifier for FailingNotifier {
+        fn notify_completed(&mut self, _state: &TimerState) -> anyhow::Result<()> {
+            self.calls += 1;
+            if self.failures_left > 0 {
+                self.failures_left -= 1;
+                anyhow::bail!("falha simulada de notificação")
+            }
+            Ok(())
         }
     }
 
@@ -575,6 +614,79 @@ mod tests {
 
         assert_eq!(notifier.calls, 1);
         assert_eq!(history::read_entries(&paths).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn falha_de_notificacao_preserva_finished_e_reprocessa_sem_duplicar() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = StatePaths::from_base(dir.path().join("omarchy-pomo"));
+        let expired = timer::start_session(
+            SessionType::Focus,
+            "teste".to_string(),
+            1,
+            chrono::Local::now() - Duration::seconds(2),
+        );
+        state::write_state(&paths, &expired).unwrap();
+        let mut notifier = FailingNotifier {
+            calls: 0,
+            failures_left: 1,
+        };
+
+        assert!(refresh_finished_state_with_notifier(&paths, &mut notifier).is_err());
+        let after_failure = state::read_state(&paths).unwrap();
+        assert_eq!(after_failure.status, TimerStatus::Finished);
+        assert!(after_failure.history_recorded);
+        assert!(!after_failure.notification_sent);
+        assert_eq!(history::read_entries(&paths).unwrap().len(), 1);
+
+        let recovered = refresh_finished_state_with_notifier(&paths, &mut notifier).unwrap();
+
+        assert!(recovered.notification_sent);
+        assert_eq!(notifier.calls, 2);
+        assert_eq!(history::read_entries(&paths).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn estado_e_historico_legados_sao_recuperados() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = StatePaths::from_base(dir.path().join("omarchy-pomo"));
+        paths.ensure_base_dir().unwrap();
+        let now = chrono::Local::now();
+        let started_at = now - Duration::seconds(2);
+        let legacy_state = serde_json::json!({
+            "status": "running",
+            "session_type": "focus",
+            "label": "legado",
+            "duration_secs": 1,
+            "started_at": started_at,
+            "paused_remaining_secs": null
+        });
+        let legacy_entry = serde_json::json!({
+            "date": now.date_naive(),
+            "type": "focus",
+            "label": "legado",
+            "duration_secs": 1,
+            "completed": true,
+            "finished_at": now
+        });
+        fs::write(
+            &paths.state_file,
+            serde_json::to_vec(&legacy_state).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            &paths.history_file,
+            format!("{}\n", serde_json::to_string(&legacy_entry).unwrap()),
+        )
+        .unwrap();
+        let mut notifier = MockNotifier::default();
+
+        let state = refresh_finished_state_with_notifier(&paths, &mut notifier).unwrap();
+
+        assert_eq!(state.status, TimerStatus::Finished);
+        assert!(state.session_id.is_some());
+        assert_eq!(history::read_entries(&paths).unwrap().len(), 1);
+        assert_eq!(notifier.calls, 1);
     }
 
     #[test]

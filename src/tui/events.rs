@@ -100,6 +100,9 @@ mod tests {
             duration_secs: 60,
             started_at: None,
             paused_remaining_secs: Some(30),
+            session_id: Some("session-test".to_string()),
+            history_recorded: false,
+            notification_sent: false,
         };
 
         assert_eq!(

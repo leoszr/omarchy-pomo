@@ -12,15 +12,16 @@ pub struct CommandSpec {
 }
 
 pub trait CompletionNotifier {
-    fn notify_completed(&mut self, state: &TimerState);
+    fn notify_completed(&mut self, state: &TimerState) -> anyhow::Result<()>;
 }
 
 #[derive(Debug, Default)]
 pub struct ExternalNotifier;
 
 impl CompletionNotifier for ExternalNotifier {
-    fn notify_completed(&mut self, state: &TimerState) {
+    fn notify_completed(&mut self, state: &TimerState) -> anyhow::Result<()> {
         notify_completed_best_effort(state);
+        Ok(())
     }
 }
 
@@ -90,6 +91,9 @@ mod tests {
             duration_secs: 1_500,
             started_at: None,
             paused_remaining_secs: Some(0),
+            session_id: Some("session-test".to_string()),
+            history_recorded: false,
+            notification_sent: false,
         }
     }
 

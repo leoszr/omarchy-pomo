@@ -75,6 +75,9 @@ pub fn start_session(
         duration_secs,
         started_at: Some(now),
         paused_remaining_secs: None,
+        session_id: Some(crate::state::new_session_id()),
+        history_recorded: false,
+        notification_sent: false,
     }
 }
 
@@ -200,6 +203,9 @@ mod tests {
             duration_secs: 60,
             started_at: None,
             paused_remaining_secs: Some(35),
+            session_id: Some("session-test".to_string()),
+            history_recorded: false,
+            notification_sent: false,
         };
 
         let resumed = resume(&paused, now);

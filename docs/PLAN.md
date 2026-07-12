@@ -6,7 +6,7 @@ Criar um aplicativo Pomodoro em Rust para Omarchy/Hyprland que funcione como uti
 
 Objetivo do MVP: entregar um Pomodoro simples, estável e integrado ao desktop Linux, sem ciclos automáticos complexos nem recursos de estatísticas avançadas.
 
-Estado do projeto: MVP concluído nas Sprints 1 a 9, com a correção de ciclo de vida aplicada. Implementado: base de domínio, caminhos locais, persistência em `state.json`, lógica de timer por timestamp, histórico JSONL, daemon via Unix Socket com tick autônomo, CLI via IPC, JSON para Waybar, notificação/som opcional, TUI Ratatui com tempo customizado, exemplos Waybar/Hyprland, hardening do socket e build release verificado. O daemon é a fonte de verdade.
+Estado do projeto: MVP concluído nas Sprints 1 a 9, com ciclo de vida autônomo e persistência durável. Implementado: base de domínio, caminhos locais, persistência crash-safe em `state.json`, lógica de timer por timestamp, histórico JSONL idempotente, daemon via Unix Socket com tick autônomo, CLI via IPC, JSON para Waybar, notificação/som opcional, TUI Ratatui com tempo customizado, exemplos Waybar/Hyprland, hardening do socket e build release verificado. O daemon é a fonte de verdade.
 
 Fluxo desejado:
 
@@ -147,14 +147,17 @@ Exemplo de `state.json`:
   "label": "25/5 Focus",
   "duration_secs": 1500,
   "started_at": "2026-05-04T14:30:00-03:00",
-  "paused_remaining_secs": null
+  "paused_remaining_secs": null,
+  "session_id": "session-...",
+  "history_recorded": false,
+  "notification_sent": false
 }
 ```
 
 Exemplo de `history.jsonl`:
 
 ```json
-{"date":"2026-05-04","type":"focus","label":"25/5","duration_secs":1500,"completed":true,"finished_at":"2026-05-04T15:00:00-03:00"}
+{"session_id":"session-...","date":"2026-05-04","type":"focus","label":"25/5","duration_secs":1500,"completed":true,"finished_at":"2026-05-04T15:00:00-03:00"}
 ```
 
 ### Waybar

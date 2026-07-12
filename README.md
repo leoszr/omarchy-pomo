@@ -138,10 +138,41 @@ Quando `state.json` não existe, o estado inicial é `Idle`.
 `history.jsonl` é append-only. Cada linha registra uma sessão concluída:
 
 ```json
-{"date":"2026-05-29","type":"focus","label":"25/5 Focus","duration_secs":1500,"completed":true,"finished_at":"2026-05-29T10:00:00-03:00"}
+{"session_id":"session-...","date":"2026-05-29","type":"focus","label":"25/5 Focus","duration_secs":1500,"completed":true,"finished_at":"2026-05-29T10:00:00-03:00"}
 ```
 
 `stop` manual não escreve histórico. Linhas inválidas em `history.jsonl` são ignoradas no resumo.
+
+`state.json` é salvo com temporário no mesmo diretório, `fsync` e rename atômico. O
+temporário usa permissão `0600`, e é removido quando uma etapa da gravação falha.
+O estado contém `session_id`, `history_recorded` e `notification_sent` para
+recuperar uma conclusão interrompida sem duplicar o histórico:
+
+```json
+{
+  "status": "finished",
+  "session_type": "focus",
+  "label": "25/5 Focus",
+  "duration_secs": 1500,
+  "started_at": null,
+  "paused_remaining_secs": 0,
+  "session_id": "session-...",
+  "history_recorded": true,
+  "notification_sent": true
+}
+```
+
+Ordem de commit: (1) `Finished` no estado, (2) linha de histórico sincronizada,
+(3) marcador do histórico, (4) notificação e seu marcador. Em restart, estado
+`Finished` repara as etapas ausentes; o `session_id` deduplica retries. Uma
+falha de notificação mantém a sessão e o histórico persistidos e permite nova
+tentativa (a notificação é at-least-once se houver crash após o comando e antes
+do marcador).
+
+Arquivos legados continuam válidos: campos novos ausentes recebem valores
+seguros; uma sessão legada ativa/concluída recebe uma identidade antes de tocar
+no histórico. Linhas antigas sem `session_id` continuam sendo lidas e usadas
+como ponte de migração.
 
 ## Troubleshooting
 

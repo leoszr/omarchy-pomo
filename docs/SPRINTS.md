@@ -28,6 +28,17 @@ Antes de considerar qualquer sprint concluída:
 - Docs atualizados no mesmo ciclo de trabalho.
 - Decisões novas registradas em `docs/PLAN.md`, `docs/SPRINTS.md`, `README.md` ou exemplos relevantes.
 
+## Sprint 2 — Persistência durável e finalização idempotente (branch atual)
+
+Status: implementada.
+
+Esta entrega reforça o `state.json` com escrita temporária crash-safe (`sync` +
+rename atômico), permissões `0600` e limpeza de temporários. Sessões agora têm
+`session_id`; a conclusão faz commit ordenado de estado, histórico e
+notificação, com marcadores de recovery e deduplicação compatível com arquivos
+legados. Falhas deixam `Finished` recuperável e retornam mensagens com a etapa
+que falhou.
+
 ## Sprint 1 — Base de domínio, caminhos e persistência
 
 Status: concluída.
