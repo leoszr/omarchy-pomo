@@ -3,7 +3,7 @@ use std::{
     io::{Read, Write},
     os::unix::net::{UnixListener, UnixStream},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc::Sender,
         Arc, Mutex,
     },
@@ -46,6 +46,7 @@ fn run_loop_internal(
 ) -> anyhow::Result<()> {
     let mut notifier = ExternalNotifier;
     let request_lock = Arc::new(Mutex::new(()));
+    let active_workers = Arc::new(AtomicUsize::new(0));
 
     loop {
         if stop
@@ -75,14 +76,43 @@ fn run_loop_internal(
         loop {
             match listener.accept() {
                 Ok((stream, _)) => {
-                    let _ = accepted_tx.as_ref().map(|sender| sender.send(()));
+                    if !try_acquire_worker(&active_workers) {
+                        eprintln!("Limite de workers IPC atingido; conexão rejeitada");
+                        drop(stream);
+                        continue;
+                    }
+
                     let paths = paths.clone();
                     let request_lock = Arc::clone(&request_lock);
-                    thread::spawn(move || {
-                        if let Err(error) = handle_stream(stream, &paths, &request_lock) {
-                            eprintln!("Erro IPC: {error:#}");
+                    let active_workers = Arc::clone(&active_workers);
+                    if let Err(error) = stream
+                        .set_read_timeout(Some(IPC_IO_TIMEOUT))
+                        .and_then(|()| stream.set_write_timeout(Some(IPC_IO_TIMEOUT)))
+                    {
+                        active_workers.fetch_sub(1, Ordering::Release);
+                        eprintln!("Falha ao configurar timeout IPC: {error:#}");
+                        continue;
+                    }
+
+                    let worker_active_workers = Arc::clone(&active_workers);
+                    let spawn_result =
+                        thread::Builder::new()
+                            .name("pomo-ipc".to_string())
+                            .spawn(move || {
+                                if let Err(error) = handle_stream(stream, &paths, &request_lock) {
+                                    eprintln!("Erro IPC: {error:#}");
+                                }
+                                worker_active_workers.fetch_sub(1, Ordering::Release);
+                            });
+                    match spawn_result {
+                        Ok(_) => {
+                            let _ = accepted_tx.as_ref().map(|sender| sender.send(()));
                         }
-                    });
+                        Err(error) => {
+                            active_workers.fetch_sub(1, Ordering::Release);
+                            eprintln!("Falha ao criar worker IPC: {error:#}");
+                        }
+                    }
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(error) => eprintln!("Erro ao aceitar conexão IPC: {error:#}"),
@@ -214,6 +244,26 @@ fn reconcile_finished_state_at(
 
 const TICK_INTERVAL: Duration = Duration::from_millis(100);
 const ERROR_RETRY_INTERVAL: Duration = Duration::from_secs(1);
+const IPC_IO_TIMEOUT: Duration = Duration::from_millis(250);
+const MAX_IPC_WORKERS: usize = 16;
+
+fn try_acquire_worker(active_workers: &std::sync::atomic::AtomicUsize) -> bool {
+    let mut active = active_workers.load(Ordering::Acquire);
+    loop {
+        if active >= MAX_IPC_WORKERS {
+            return false;
+        }
+        match active_workers.compare_exchange_weak(
+            active,
+            active + 1,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => return true,
+            Err(observed) => active = observed,
+        }
+    }
+}
 
 fn next_tick_delay(state: &TimerState, now: chrono::DateTime<chrono::Local>) -> Duration {
     let Some(due_at) = timer::due_at(state) else {
@@ -349,6 +399,73 @@ mod tests {
 
         assert_eq!(history::read_entries(&paths).unwrap().len(), 1);
         drop(stuck_client);
+        stop.store(true, Ordering::Relaxed);
+        scheduler.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn conexoes_presas_sao_limitadas_e_workers_se_recuperam() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = StatePaths::from_base(dir.path().join("omarchy-pomo"));
+        paths.ensure_base_dir().unwrap();
+        let listener = UnixListener::bind(&paths.socket_file).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let (accepted_tx, accepted_rx) = std::sync::mpsc::channel();
+        let loop_stop = Arc::clone(&stop);
+        let loop_paths = paths.clone();
+        let scheduler = thread::spawn(move || {
+            run_loop_internal(loop_paths, listener, Some(loop_stop), Some(accepted_tx))
+        });
+
+        let mut stuck_clients = Vec::new();
+        for _ in 0..(MAX_IPC_WORKERS + 4) {
+            stuck_clients.push(UnixStream::connect(&paths.socket_file).unwrap());
+        }
+
+        for _ in 0..MAX_IPC_WORKERS {
+            accepted_rx
+                .recv_timeout(StdDuration::from_secs(1))
+                .expect("worker IPC não foi criado");
+        }
+        assert!(accepted_rx
+            .recv_timeout(StdDuration::from_millis(50))
+            .is_err());
+
+        let expired = timer::start_session(
+            SessionType::Focus,
+            "limite IPC".to_string(),
+            1,
+            chrono::Local::now() - Duration::seconds(2),
+        );
+        state::write_state(&paths, &expired).unwrap();
+
+        let deadline = Instant::now() + StdDuration::from_secs(2);
+        loop {
+            if state::read_state(&paths).unwrap().status == TimerStatus::Finished {
+                break;
+            }
+            assert!(Instant::now() < deadline, "tick não finalizou o timer");
+            thread::sleep(StdDuration::from_millis(10));
+        }
+        assert_eq!(history::read_entries(&paths).unwrap().len(), 1);
+
+        let deadline = Instant::now() + StdDuration::from_secs(2);
+        loop {
+            if let Ok(IpcResponse::State { state }) =
+                crate::ipc::request(&paths, &IpcRequest::Status)
+            {
+                assert_eq!(state.status, TimerStatus::Finished);
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "workers não se recuperaram após timeout"
+            );
+            thread::sleep(StdDuration::from_millis(10));
+        }
+
+        drop(stuck_clients);
         stop.store(true, Ordering::Relaxed);
         scheduler.join().unwrap().unwrap();
     }

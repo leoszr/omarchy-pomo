@@ -6,8 +6,9 @@ Este documento quebra o `docs/PLAN.md` em sprints pequenas o bastante para desen
 
 - O daemon possui tick interno não bloqueante e finaliza sessões sem polling de
   Waybar, TUI ou CLI.
-- Clientes IPC são lidos em workers separados; conexão presa não bloqueia o
-  scheduler, e falhas transitórias do tick usam retry com backoff limitado.
+- Clientes IPC são lidos em no máximo 16 workers separados, com timeout de 250
+  ms; conexão presa não bloqueia nem causa crescimento ilimitado, e falhas
+  transitórias do tick usam retry com backoff limitado.
 - `start` e `stop` reconciliam sessões vencidas antes de substituir/limpar o
   estado.
 - Histórico usa o instante nominal de vencimento, com data local correta.
